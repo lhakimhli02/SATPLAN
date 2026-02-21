@@ -16,6 +16,7 @@ import time as time_mod
 from data_structures import (
     SolverSpec, Graphplan_Solver, Anysat,
     Sat, Unsat, Timeout, Failure,
+    PrintLit, PrintCNF, PrintModel,
 )
 from graphplan import PlanningGraph
 from planner import Planner
@@ -187,6 +188,23 @@ def main():
 
     graph.process_data()
 
+    if debug >= 2:
+        print("=== Parsed PDDL ===")
+        print(f"Action schemas ({len(graph.ops)}):")
+        for op in graph.ops:
+            params_str = ' '.join(op.params)
+            print(f"  ({op.name} {params_str})")
+            print(f"    Pre:  {op.preconds}")
+            print(f"    Eff:  {op.effects}")
+        print(f"\nObjects ({len(graph.objects)}): {' '.join(graph.objects)}")
+        print(f"\nInitial facts ({len(graph.initial_facts)}):")
+        for fact in graph.initial_facts:
+            print(f"  ({' '.join(fact)})")
+        print(f"\nGoals ({len(graph.the_goals)}):")
+        for goal in graph.the_goals:
+            print(f"  ({' '.join(goal)})")
+        print()
+
     num_goals = len(graph.the_goals)
     if num_goals == 0:
         print("Error: no goals specified", file=sys.stderr)
@@ -219,10 +237,17 @@ def main():
 
     # ── 4. Search for plan ──────────────────────────────────────────────
 
+    printflag = 0
+    if args.printlit:
+        printflag |= PrintLit | PrintModel
+    if args.printcnf:
+        printflag |= PrintCNF | PrintModel
+
     planner = Planner(
         graph=graph,
         solver_specs=solver_specs,
         axioms=axioms,
+        printflag=printflag,
         debug=debug,
         noopt=args.noopt,
         noskip=args.noskip,

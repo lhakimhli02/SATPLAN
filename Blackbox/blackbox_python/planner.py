@@ -17,6 +17,7 @@ from data_structures import (
     Sat, Unsat, Timeout, Failure,
     Graphplan_Solver, Anysat,
     CONNECTOR, NOOP,
+    PrintLit, PrintCNF, PrintModel,
 )
 from graphplan import PlanningGraph
 from graph2wff import SATEncoder
@@ -234,6 +235,13 @@ class Planner:
         if self.debug >= 1:
             print(f"  CNF: {numvar} vars, {numclause} clauses")
 
+        if self.printflag & PrintLit:
+            print("\n=== Variable Map ===")
+            encoder.print_variable_map()
+        if self.printflag & PrintCNF:
+            print("\n=== DIMACS CNF ===")
+            print(encoder.to_dimacs())
+
         # Call the appropriate solver
         solver_func = {
             'cadical': bb_satsolve_cadical,
@@ -266,6 +274,13 @@ class Planner:
             print(f"  SAT timing: encode={encode_sec:.3f}s solve={solve_sec:.3f}s")
 
         if status == Sat:
+            if self.printflag & PrintModel:
+                print(f"\n=== SAT Solution (makespan {maxtime}) ===")
+                for i in range(1, numvar + 1):
+                    if i < len(soln) and soln[i] == 1:
+                        v = encoder.prop2vertex[i] if i < len(encoder.prop2vertex) else None
+                        name = v.name if v is not None else f"aux_{i}"
+                        print(f"  {i}: {name} = TRUE")
             encoder.soln2graph(soln)
             return Sat, sat_bundle
         return status, sat_bundle
@@ -324,6 +339,14 @@ class Planner:
         if self.debug >= 1:
             print(f"  CNF: {numvar} vars, {total_clauses} clauses")
 
+        if self.printflag & PrintLit:
+            print("\n=== Variable Map ===")
+            encoder.print_variable_map()
+        if self.printflag & PrintCNF:
+            print(f"\n=== DIMACS CNF (delta, {len(clauses)} new clauses) ===")
+            for clause in clauses:
+                print(' '.join(str(lit) for lit in clause) + ' 0')
+
         if clauses:
             session.add_clauses(clauses)
             if self.debug >= 1:
@@ -350,6 +373,13 @@ class Planner:
             )
 
         if status == Sat:
+            if self.printflag & PrintModel:
+                print(f"\n=== SAT Solution (makespan {maxtime}) ===")
+                for i in range(1, numvar + 1):
+                    if i < len(soln) and soln[i] == 1:
+                        v = encoder.prop2vertex[i] if i < len(encoder.prop2vertex) else None
+                        name = v.name if v is not None else f"aux_{i}"
+                        print(f"  {i}: {name} = TRUE")
             encoder.soln2graph(soln)
         return status
 

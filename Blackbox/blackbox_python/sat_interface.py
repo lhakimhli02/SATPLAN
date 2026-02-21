@@ -414,7 +414,7 @@ class WalkSATSolver:
     _binary_path: str | None = None
     _binary_searched = False
 
-    def __init__(self, max_flips: int = 100000, max_restarts: int = 10,
+    def __init__(self, max_flips: int = 5000000, max_restarts: int = 100,
                  noise: float = 0.4, debug: int = 0):
         self.max_flips = max_flips
         self.max_restarts = max_restarts
