@@ -49,7 +49,8 @@ class STRIPSEncoder:
                  exists_step: bool = True,
                  emit_effects: bool = True,
                  emit_mutex: bool = True,
-                 close_world: bool = True):
+                 close_world: bool = True,
+                 sequential: bool = False):
         """
         Parameters
         ----------
@@ -72,6 +73,7 @@ class STRIPSEncoder:
         self.emit_effects = emit_effects
         self.emit_mutex = emit_mutex
         self.close_world = close_world
+        self.sequential = sequential
 
         # Fluent index (name → index into all_fluents)
         self._fluent_idx: dict[str, int] = {f: i for i, f in enumerate(all_fluents)}
@@ -351,9 +353,14 @@ class STRIPSEncoder:
 
     def _generate_mutex(self, t: int):
         """Emit mutex constraints for action pairs at time t, using AMO ladder."""
-        # Build adjacency for clique finding
         n = len(self.ground_actions)
         if n == 0:
+            return
+
+        # Sequential mode: at most one action per timestep (AMO over all actions)
+        if self.sequential:
+            lits = [self._action_var(ai, t) for ai in range(n)]
+            self._amo_ladder(lits)
             return
 
         # Group mutexes by clique for AMO encoding

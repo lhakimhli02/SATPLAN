@@ -55,7 +55,8 @@ class SATPlanner:
                  exists_step: bool = True,
                  emit_effects: bool = True,
                  emit_mutex: bool = True,
-                 close_world: bool = True):
+                 close_world: bool = True,
+                 sequential: bool = False):
         self.ground_actions = ground_actions
         self.all_fluents = all_fluents
         self.initial_set = initial_set
@@ -69,6 +70,7 @@ class SATPlanner:
         self.emit_effects = emit_effects
         self.emit_mutex = emit_mutex
         self.close_world = close_world
+        self.sequential = sequential
 
         # Plan state
         self.plan_found: bool = False
@@ -94,6 +96,7 @@ class SATPlanner:
             emit_effects=self.emit_effects,
             emit_mutex=self.emit_mutex,
             close_world=self.close_world,
+            sequential=self.sequential,
         )
 
     # ── Main search call ──────────────────────────────────────────────────

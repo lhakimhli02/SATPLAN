@@ -101,6 +101,8 @@ def main():
                         help='Disable mutex constraints')
     parser.add_argument('-forallstep', action='store_true',
                         help='Use forall-step mutex semantics (default: exists-step)')
+    parser.add_argument('-sequential', action='store_true',
+                        help='Sequential planning: at most one action per timestep')
     parser.add_argument('-nocwa', action='store_true',
                         help='Disable closed-world assumption at t=0')
     parser.add_argument('-printlit', action='store_true',
@@ -253,6 +255,7 @@ def main():
         emit_effects=not args.noeffects,
         emit_mutex=not args.nomutex,
         close_world=not args.nocwa,
+        sequential=args.sequential,
     )
 
     max_time = fixed_time if fixed_time > 0 else max_auto
@@ -395,6 +398,7 @@ Options:
   -noeffects        Omit explicit effect clauses (rely on frame axioms only)
   -nomutex          Disable mutex (action interference) constraints
   -forallstep       Use forall-step mutex semantics (default: exists-step)
+  -sequential       Sequential planning: at most one action per timestep
   -nocwa            Disable closed-world assumption at t=0
   -printlit         Print variable map
   -printcnf         Print DIMACS CNF

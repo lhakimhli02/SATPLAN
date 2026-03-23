@@ -144,6 +144,7 @@ Output columns: `Vars`, `New Clauses`, `Init (CWA)`, `Goal`, `Precond`, `Effects
 | `-noeffects` | Omit explicit effect clauses (rely on frame axioms only) |
 | `-nomutex` | Disable mutex constraints |
 | `-forallstep` | Use forall-step mutex semantics (default: exists-step) |
+| `-sequential` | Sequential planning: at most one action per timestep |
 | `-nocwa` | Disable closed-world assumption at t=0 |
 | `-printlit` | Print variable map |
 | `-printcnf` | Print DIMACS CNF |
@@ -226,7 +227,7 @@ After finding a plan at the minimum makespan, both planners search for plans wit
 | **Mutex source** | Graph-level mutex propagation | Exists-step sequential applicability check |
 | **Frame axioms** | Fact-level (graph layer) | Explanatory frame axioms per fluent per step |
 | **Effect clauses** | Optional (`-axioms 31+`) | Always emitted (or disabled with `-noeffects`) |
-| **Unique options** | `-axioms`, `-noskip`, `-M`, `graphplan` solver | `-nocwa`, `-noeffects`, `-nomutex`, `-forallstep` |
+| **Unique options** | `-axioms`, `-noskip`, `-M`, `graphplan` solver | `-nocwa`, `-noeffects`, `-nomutex`, `-forallstep`, `-sequential` |
 
 ---
 
