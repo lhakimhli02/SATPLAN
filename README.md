@@ -23,8 +23,14 @@ Two SAT-based planning systems that convert PDDL problems into Boolean satisfiab
 ```bash
 cd SATPLAN/Blackbox/blackbox_python
 
-# Run on the included example (Depot domain)
-python blackbox.py -o pddl_problems/domain.pddl -f pddl_problems/problem.pddl
+# Blocksworld example
+python blackbox.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
+
+# Elevator example (simple: 4 floors, 2 passengers, 1 elevator)
+python blackbox.py -o pddl_problems/elevator_domain.pddl -f pddl_problems/elevator_problem.pddl
+
+# Elevator example (medium: 6 floors, 3 passengers, 2 elevators)
+python blackbox.py -o pddl_problems/elevator_domain.pddl -f pddl_problems/elevator_problem2.pddl
 ```
 
 ### Usage
@@ -40,8 +46,8 @@ python blackbox.py -o <domain.pddl> -f <problem.pddl> [options] [-solver <solver
 Prints per-category CNF clause counts at each horizon, then solves and shows the plan:
 
 ```bash
-python count_clauses.py -o pddl_problems/domain.pddl -f pddl_problems/problem.pddl
-python count_clauses.py -o pddl_problems/domain.pddl -f pddl_problems/problem.pddl -maxtime 15
+python count_clauses.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
+python count_clauses.py -o pddl_problems/elevator_domain.pddl -f pddl_problems/elevator_problem.pddl -maxtime 15
 ```
 
 Output columns: `Vars`, `Total Clauses`, `Init`, `Goal`, `Precond`, `Frame`, `Mutex AMO`.
@@ -83,18 +89,75 @@ Output columns: `Vars`, `Total Clauses`, `Init`, `Goal`, `Precond`, `Frame`, `Mu
 
 ```
 blackbox_python/
-  blackbox.py        Main entry point and argument parsing
-  planner.py         Planning loop, solver dispatch, action minimization
-  graphplan.py       Planning graph construction
-  graph2wff.py       SAT encoding (CNF generation, AMO ladder encoding)
-  sat_interface.py   SAT solver interfaces (PySAT, DPLL, Kissat, WalkSAT)
-  utilities.py       Mutex computation (exists-step semantics)
-  data_structures.py Core data types (Vertex, Operator, HashTable)
-  pddl_parser.py     PDDL domain/problem parser
-  justify.py         Plan justification (unnecessary action removal)
-  count_clauses.py   Per-category clause counter + solver
-  pddl_problems/     Example PDDL files
+  blackbox.py                          Main entry point and argument parsing
+  planner.py                           Planning loop, solver dispatch, action minimization
+  graphplan.py                         Planning graph construction
+  graph2wff.py                         SAT encoding (CNF generation, AMO ladder encoding)
+  sat_interface.py                     SAT solver interfaces (PySAT, DPLL, Kissat, WalkSAT)
+  utilities.py                         Mutex computation (exists-step semantics)
+  data_structures.py                   Core data types (Vertex, Operator, HashTable)
+  pddl_parser.py                       PDDL domain/problem parser
+  justify.py                           Plan justification (unnecessary action removal)
+  count_clauses.py                     Per-category clause counter + solver
+  animate_blocksworld.py               Planning graph + blocks-world animation
+  animate_elevator.py                  Planning graph + elevator animation
+  visualize_graphplan.py               Planning graph renderer (used by animations)
+  visualize_graphplan_clustered.py     Predicate-clustered graph renderer (alternative)
+  pddl_problems/
+    blocksworld_domain.pddl            Blocksworld domain
+    blocksworld_problem.pddl           Blocksworld problem (3 blocks)
+    elevator_domain.pddl               Elevator domain (pure STRIPS, no numeric costs)
+    elevator_problem.pddl              Elevator problem (4 floors, 2 passengers, 1 elevator)
+    elevator_problem2.pddl             Elevator problem (6 floors, 3 passengers, 2 elevators)
 ```
+
+---
+
+## Animations (`blackbox_python/`)
+
+Both animators show a two-panel display: the **planning graph** growing horizon by horizon on the left, and the **world state** executing the found plan on the right. Requires `matplotlib`: `pip install matplotlib`.
+
+### Blocksworld Animation
+
+```bash
+cd SATPLAN/Blackbox/blackbox_python
+
+python animate_blocksworld.py -o pddl_problems/blocksworld_domain.pddl \
+                              -f pddl_problems/blocksworld_problem.pddl
+```
+
+The right panel shows a robotic-arm blocks world with smooth three-phase movement (lift → slide → lower). During the search phase, the best partial plan achieved so far is shown. Goal blocks are highlighted with a green border.
+
+### Elevator Animation
+
+```bash
+cd SATPLAN/Blackbox/blackbox_python
+
+# Simple: 4 floors, 2 passengers, 1 elevator
+python animate_elevator.py -o pddl_problems/elevator_domain.pddl \
+                           -f pddl_problems/elevator_problem.pddl
+
+# Medium: 6 floors, 3 passengers, 2 elevators
+python animate_elevator.py -o pddl_problems/elevator_domain.pddl \
+                           -f pddl_problems/elevator_problem2.pddl
+```
+
+The right panel shows a building with elevator shaft(s), a smoothly moving car, and passengers as colored circles. Passengers inside the car appear as smaller circles within it. Goal passengers are highlighted with a green border.
+
+### Animation Options (both scripts)
+
+| Flag | Description |
+|------|-------------|
+| `-o <file>` | Domain PDDL file |
+| `-f <file>` | Problem PDDL file |
+| `--steps N` | Max horizons to search (default: 20) |
+| `--interval N` | Milliseconds per logical plan step (default: 1200) |
+| `--save <path>` | Save as `.mp4` or `.gif` instead of displaying |
+| `--no-noop` | Hide no-op actions in the planning graph panel |
+| `--max-facts N` | Max fact nodes per graph column (default: 45) |
+| `--max-actions N` | Max action nodes per graph column (default: 60) |
+| `--debug N` | Debug level (default: 0) |
+| `--clustered` | Use predicate-clustered graph layout (blocksworld only) |
 
 ---
 
