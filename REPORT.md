@@ -196,11 +196,11 @@ Alternative predicate-clustered layout for Blocksworld. Groups facts by predicat
 
 **Blocksworld**
 
-<video src="BlocksWorld_Demo.mp4" controls width="100%"></video>
+![Blocksworld demo](BlocksWorld_Demo.gif)
 
 **Elevator**
 
-<video src="Elevator_demo.mp4" controls width="100%"></video>
+![Elevator demo](Elevator_demo.gif)
 
 
 
