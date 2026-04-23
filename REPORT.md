@@ -137,19 +137,6 @@ satplan_planner.py   ← planning loop, solver dispatch, action minimization
    - Becomes-false: `[f_{t+1}, ¬fₜ, deleter₁_t, …]`
 6. **Mutex:** `¬a1_t ∨ ¬a2_t` for action pairs whose both sequential orderings violate preconditions (exists-step only).
 
-### Bugs Found and Fixed
-
-**Bug 1 — Type-based grounding pruning (grounder.py)**
-
-The original `_infer_param_types_from_preconds` method used *any* unary initial-state predicate as a type constraint — including changing fluents like `clear`. For example, `clear` was true initially for blocks `a` and `c` but not `b`, so the action `stack_a_b` was pruned because `clear(b)` was false at `t=0`. Goal fluents like `on(a,b)` ended up with no adder actions, making the problem permanently UNSAT.
-
-**Fix:** Added `_collect_effect_predicates(ops)` to identify all predicates that appear in any action's effects. `_infer_param_types_from_preconds` now skips any predicate that appears in effects, using only truly static predicates (e.g., `truck`, `depot`, `driver`) as type filters.
-
-**Bug 2 — Exists-step mutex computation (strips_encoder.py)**
-
-The initial mutex check incorrectly included "inconsistent effects" (`a.del_eff & b.add_eff` and vice versa) as a reason to declare two actions non-parallel. These conflicts do not prevent sequential ordering from succeeding. Only precondition violations (`a.del_eff & b.pos_pre` and `a.add_eff & b.neg_pre`) matter.
-
-**Fix:** Removed the inconsistent-effects checks from the exists-step mutex predicate; now only precondition interference is tested.
 
 ### Benchmark Results
 
@@ -300,8 +287,7 @@ Both planners support typed STRIPS:
 
 1. **Full Python rewrite of BlackBox** — complete PDDL → GraphPlan → CNF → SAT pipeline with 8 solver backends, solver chaining, incremental encoding, and action minimization.
 2. **Original direct STRIPS-to-SAT planner** — independent implementation without a planning graph intermediate; faster on some benchmarks (Depot: 15 actions at horizon 4 in 0.08 s).
-3. **Two critical bugs diagnosed and fixed** in the STRIPS grounding and mutex computation, enabling correct solutions on standard benchmarks.
-4. **Interactive planning graph visualizer** with two layout modes (standard and predicate-clustered).
-5. **Two animated demos** (Blocksworld and Elevator) combining live graph growth with smooth world-state simulation, exportable as MP4/GIF.
-6. **Shared infrastructure** — `pddl_parser.py`, `sat_interface.py`, `data_structures.py` are reused across both planners with no duplication.
-7. **Clause analysis utility** (`count_clauses.py`) for profiling CNF encoding size by category at each horizon.
+3. **Interactive planning graph visualizer** with two layout modes (standard and predicate-clustered).
+4. **Two animated demos** (Blocksworld and Elevator) combining live graph growth with smooth world-state simulation, exportable as MP4/GIF.
+5. **Shared infrastructure** — `pddl_parser.py`, `sat_interface.py`, `data_structures.py` are reused across both planners with no duplication.
+6. **Clause analysis utility** (`count_clauses.py`) for profiling CNF encoding size by category at each horizon.
