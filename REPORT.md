@@ -1,20 +1,34 @@
 # SATPLAN Project — Progress Report
 
 **Date:** April 23, 2026  
-**Repository:** `lhakimhli02/SATPLAN` (`/Users/lukashakim/SATPLAN/`)
+**Repository:** `lhakimhli02/SATPLAN`
 
 ---
 
 ## Overview
 
-This project implements two complete SAT-based AI planning systems entirely in Python, along with graph visualizers, animated plan demonstrations, and a full suite of analysis utilities. Both systems read standard PDDL domain and problem files and produce plans by encoding the planning problem as a Boolean satisfiability (SAT) instance and calling modern SAT solvers.
+This project builds two complete **AI planning systems** in Python. Given a description of a world (what actions are possible, what the starting state is, and what goal you want to reach), both systems automatically find a sequence of actions — a **plan** — that gets from the start to the goal.
 
-The two planners take different routes to the same goal:
+The core idea is to turn the planning problem into a **Boolean satisfiability (SAT)** problem: encode everything as logical clauses and ask a SAT solver whether a plan of length *T* exists. If the solver says "satisfiable", it returns a model that directly decodes into a plan.
 
-| System | Route |
-|--------|-------|
-| **BlackBox** (`blackbox_python/`) | PDDL → GraphPlan graph → CNF → SAT |
-| **SATplan** (`satplan_python/`) | PDDL → ground STRIPS actions → CNF → SAT |
+Both systems use **PDDL** (Planning Domain Definition Language), the standard file format used in AI planning research and competitions to describe actions and problems.
+
+### What is GraphPlan?
+
+GraphPlan is a classic planning algorithm (Blum & Furst, 1997). It builds a **planning graph** — a layered data structure that alternates between *fact layers* (what is true at step *t*) and *action layers* (what actions can fire at step *t*). It also tracks **mutexes** — pairs of facts or actions that cannot both be true/applied at the same time step. This graph compactly encodes all possible parallelizable plans up to a given horizon.
+
+### What is SATPlan / BlackBox?
+
+**SATPlan** (Kautz & Selman, 1992) encodes the planning problem as a SAT formula and hands it to a modern SAT solver. **BlackBox** (Kautz & Selman, 1998) combines both ideas: first build a GraphPlan graph to get structure and mutex information, then encode *that graph* as CNF clauses and solve with SAT. This is often faster than pure GraphPlan backward search because modern SAT solvers are highly optimized.
+
+### The Two Planners at a Glance
+
+| System | Approach |
+|--------|----------|
+| **BlackBox** (`blackbox_python/`) | PDDL → GraphPlan graph → CNF → SAT solver |
+| **SATplan** (`satplan_python/`) | PDDL → ground STRIPS actions → CNF → SAT solver |
+
+The key difference: BlackBox builds a planning graph first and encodes that; SATplan skips the graph entirely and encodes the grounded actions directly.
 
 ---
 
@@ -22,28 +36,36 @@ The two planners take different routes to the same goal:
 
 A complete Python rewrite of the classic BlackBox planner (Kautz & Selman, 1998).
 
+### How It Works (Step by Step)
+
+1. **Parse PDDL** — read the domain (action schemas) and problem (objects, initial state, goal).
+2. **Build a planning graph** — starting from the initial facts, repeatedly apply all applicable actions to grow a layered graph of reachable facts and actions. Track mutex pairs at each layer (facts or actions that can never both hold at the same step).
+3. **Encode as CNF** — convert the graph into a set of logical clauses (the SAT formula). Each fact and action at each time step becomes a Boolean variable. Clauses enforce preconditions, effects, frame axioms (things stay true unless changed), and mutex constraints.
+4. **Call a SAT solver** — if the solver finds a satisfying assignment, decode it back into a plan. If not, extend the graph by one step and try again.
+5. **Minimize actions** — once a plan is found, search for shorter plans (fewer total actions) at slightly longer makespans.
+
 ### Pipeline
 
 ```
 PDDL files
     │
     ▼
-pddl_parser.py      ← typed STRIPS parser
+pddl_parser.py      ← reads domain and problem files
     │
     ▼
-graphplan.py         ← layered planning graph (fact + action layers, mutex propagation)
+graphplan.py        ← builds the layered planning graph + mutex sets
     │
     ▼
-graph2wff.py         ← CNF encoding (axiom presets, AMO ladder, incremental)
+graph2wff.py        ← encodes the graph as CNF clauses
     │
     ▼
-sat_interface.py     ← SAT solver dispatch (PySAT / Kissat / WalkSAT / DPLL)
+sat_interface.py    ← calls the SAT solver
     │
     ▼
-planner.py           ← search loop, solver chaining, action minimization
+planner.py          ← search loop, solver chaining, action minimization
     │
     ▼
-justify.py           ← unnecessary action removal from solution
+justify.py          ← removes unnecessary actions from the solution
 ```
 
 ### Module Details
@@ -51,49 +73,56 @@ justify.py           ← unnecessary action removal from solution
 | File | Role |
 |------|------|
 | `blackbox.py` | CLI entry point; argument parsing, solver spec parsing, timing breakdown |
-| `planner.py` | Planning loop; iterative horizon search; solver dispatch; action minimization via PySAT cardinality constraints; plan output |
-| `graphplan.py` | `PlanningGraph` class; layered fact/action tables; mutex propagation; relevance pruning; incremental graph extension |
-| `graph2wff.py` | `SATEncoder` class; CNF generation for five axiom types; AMO ladder encoding; incremental skip optimization; DIMACS output |
-| `sat_interface.py` | Solver wrappers for CaDiCaL, Glucose, Maple, MiniSat (PySAT), Kissat (external binary), WalkSAT (stochastic), DPLL (pure Python); `IncrementalSATSolver` session class |
-| `utilities.py` | Mutex computation (exists-step semantics); fact/action mutex helpers |
+| `planner.py` | Planning loop; iterative horizon search; solver dispatch; action minimization via cardinality constraints; plan output |
+| `graphplan.py` | Builds the layered planning graph; tracks reachable facts and actions at each step; computes mutex pairs; supports incremental extension |
+| `graph2wff.py` | Converts the planning graph to CNF clauses; supports five axiom encoding presets; uses AMO ladder encoding for mutex cliques |
+| `sat_interface.py` | Wrappers for 7 SAT solver backends; stateful incremental solver session that reuses learned clauses across horizons |
+| `utilities.py` | Mutex computation helpers (exists-step semantics) |
 | `data_structures.py` | Core types: `Vertex`, `Operator`, `HashTable`, `SolverSpec`, result codes |
 | `pddl_parser.py` | Typed STRIPS PDDL parser (`:strips`, `:typing`, `:equality`) |
-| `justify.py` | Backward-chaining plan justification to remove redundant actions |
-| `count_clauses.py` | Per-category clause counter; reports `Vars / Total / Init / Goal / Precond / Frame / Mutex AMO` at each horizon |
+| `justify.py` | Removes redundant actions from the found plan |
+| `count_clauses.py` | Prints per-category clause counts (`Vars / Total / Init / Goal / Precond / Frame / Mutex AMO`) at each horizon |
 
 ### SAT Encoding Presets (`-axioms`)
 
-| Value | Axioms included |
+These control which logical constraints are included in the CNF formula. More constraints can prune the search space but add more clauses.
+
+| Value | What's included |
 |-------|----------------|
 | 7 (default) | Mutex actions + preconditions + frame axioms |
 | 15 | Above + mutex facts |
-| 31 | Above + action implies effect (compressed) |
-| 63 | Above + redundant clauses (expanded) |
-| 129 | Mutex actions + action-to-action chaining only (no fact propositions) |
+| 31 | Above + explicit action → effect clauses |
+| 63 | Above + redundant (but sometimes helpful) clauses |
+| 129 | Action-only encoding (no explicit fact propositions) |
 
 ### Key Engineering Choices
 
-- **AMO ladder encoding**: mutex cliques of size ≥ 4 use the ladder at-most-one scheme — O(3(k−1)) clauses versus O(k(k−1)/2) for pairwise. Smaller cliques (≤ 3) use pairwise for simplicity.
-- **Exists-step semantics**: two actions are mutex only if *both* sequential orderings fail their preconditions — strictly less constrained than forall-step, enabling more parallel plans.
-- **Incremental SAT**: learned clauses are reused across horizons; only newly added graph layers are encoded per iteration.
-- **Solver chaining**: `-solver -maxsec 30 glucose -then cadical` tries Glucose with a 30s timeout, then falls back to CaDiCaL if it times out.
-- **Action minimization**: after finding a plan at the minimum makespan, the planner searches longer makespans for plans with fewer total actions using PySAT sequential counter cardinality constraints.
+- **AMO ladder encoding**: when many actions are mutually exclusive, encoding "at most one fires" with a ladder structure uses O(3k) clauses instead of O(k²) for pairwise — much more efficient for large mutex cliques.
+- **Exists-step semantics**: two actions are only declared mutex if *both* orderings (A then B, and B then A) violate a precondition. This is less restrictive than forall-step, allowing more parallelism in plans.
+- **Incremental SAT**: instead of re-solving from scratch at each horizon, the solver session is kept alive and only new clauses are added. The solver can reuse everything it already learned.
+- **Solver chaining**: try one solver with a time limit, automatically fall back to another if it times out (e.g., `-solver -maxsec 30 glucose -then cadical`).
 
 ### PDDL Benchmarks Included
 
-| Problem | Domain |
-|---------|--------|
-| `blocksworld_problem.pddl` | 3-block Blocksworld |
+| Problem | Description |
+|---------|-------------|
+| `blocksworld_problem.pddl` | Stack 4 blocks into a tower |
 | `elevator_problem.pddl` | 4 floors, 2 passengers, 1 elevator |
 | `elevator_problem2.pddl` | 6 floors, 3 passengers, 2 elevators |
 
-Additional benchmark suites under `Blackbox/BlackBox-master/Examples/`: Logistics (STRIPS and typed, 30 problems), Bulldozer, Fridge, Tire-World, Woodshop, Move-BW (large), Prodigy-BW (large).
+Additional benchmark suites under `Blackbox/BlackBox-master/Examples/`: Logistics (30 problems, STRIPS and typed), Bulldozer, Fridge, Tire-World, Woodshop, and large Blocksworld variants.
 
 ---
 
 ## 2. SATplan Python (`satplan_python/`)
 
-An original direct STRIPS-to-SAT planner that bypasses the planning graph entirely.
+An original direct STRIPS-to-SAT planner that skips the planning graph entirely.
+
+### How It Differs from BlackBox
+
+Instead of building a planning graph first, SATplan **grounds** the PDDL actions directly — substituting all possible object combinations into each action schema to produce a flat list of concrete actions (e.g., `stack_A_B`, `stack_A_C`, `unstack_B_C`, …). It then encodes these grounded actions directly into CNF clauses without any intermediate graph structure.
+
+This is simpler conceptually and avoids the graph construction cost, but loses the mutex propagation information that GraphPlan provides for free.
 
 ### Pipeline
 
@@ -101,13 +130,13 @@ An original direct STRIPS-to-SAT planner that bypasses the planning graph entire
 PDDL files
     │
     ▼
-pddl_parser.py       ← shared parser
+pddl_parser.py       ← shared parser (same as BlackBox)
     │
     ▼
-grounder.py          ← STRIPSProblem + GroundAction; type-based pruning
+grounder.py          ← instantiates all concrete actions from schemas
     │
     ▼
-strips_encoder.py    ← STRIPSEncoder; explanatory frame axioms, AMO ladder, incremental
+strips_encoder.py    ← encodes actions + fluents directly as CNF
     │
     ▼
 sat_interface.py     ← shared SAT solver layer
@@ -120,174 +149,209 @@ satplan_planner.py   ← planning loop, solver dispatch, action minimization
 
 | File | Role |
 |------|------|
-| `satplan.py` | CLI entry point; same flags as `blackbox.py` plus STRIPS-specific flags |
-| `satplan_planner.py` | Planning loop identical in structure to `planner.py`; action minimization; plan output |
-| `grounder.py` | `STRIPSProblem` + `GroundAction`; enumerates all type-compatible object combinations per action schema; static-predicate type pruning |
-| `strips_encoder.py` | `STRIPSEncoder`; fluent and action variables; initial state (CWA); precondition, effect, and explanatory frame axiom clauses; exists-step mutex; AMO ladder; incremental encoding |
+| `satplan.py` | CLI entry point; same flags as `blackbox.py` plus a few STRIPS-specific extras |
+| `satplan_planner.py` | Planning loop; action minimization; plan output |
+| `grounder.py` | Instantiates all type-compatible ground actions from PDDL schemas; prunes using static predicates |
+| `strips_encoder.py` | Encodes fluent/action variables, initial state, goal, preconditions, effects, frame axioms, and mutex clauses into CNF |
 | `count_clauses.py` | Per-category clause counter: `Vars / New Clauses / Init (CWA) / Goal / Precond / Effects / Frame axioms / Mutex AMO` |
 
-### Encoding (per time step `t`)
+### CNF Encoding Explained
 
-1. **Initial state (CWA):** `[+f₀]` for all `f ∈ init`; `[-f₀]` for all `f ∉ init`.
-2. **Goal state:** `[+f_T]` or `[-f_T]` for each goal literal (encoded as SAT assumptions for incremental solving).
-3. **Preconditions:** `¬aₜ ∨ fₜ` (positive) and `¬aₜ ∨ ¬fₜ` (negative).
-4. **Effects:** `¬aₜ ∨ f_{t+1}` (add) and `¬aₜ ∨ ¬f_{t+1}` (delete).
-5. **Explanatory frame axioms:**
-   - Becomes-true: `[¬f_{t+1}, fₜ, adder₁_t, …]`
-   - Becomes-false: `[f_{t+1}, ¬fₜ, deleter₁_t, …]`
-6. **Mutex:** `¬a1_t ∨ ¬a2_t` for action pairs whose both sequential orderings violate preconditions (exists-step only).
+For each time step `t`, the following clauses are added:
 
+| Clause type | What it says | Formula |
+|------------|-------------|---------|
+| **Initial state** | Every fluent is explicitly set true or false at t=0 (closed-world assumption) | `[+f₀]` or `[-f₀]` |
+| **Goal** | Required fluents must hold at the final step T | `[+f_T]` or `[-f_T]` |
+| **Preconditions** | If an action fires, its required facts must hold | `¬aₜ ∨ fₜ` |
+| **Effects** | If an action fires, it changes the world | `¬aₜ ∨ f_{t+1}` |
+| **Frame axioms** | Facts only change if some action caused the change | `¬f_{t+1} ∨ fₜ ∨ (adders…)` |
+| **Mutex** | Conflicting actions can't both fire at step t | `¬a1_t ∨ ¬a2_t` |
+
+### Bugs Found and Fixed
+
+**Bug 1 — Incorrect type-based grounding pruning**
+
+The grounder tried to be smart: it looked at unary predicates in a precondition (like `clear(x)`) to infer what type `x` should be, and then only grounded actions for objects where that predicate was true in the initial state.
+
+The problem: `clear` is a *changing* fluent — it starts true for some blocks but becomes false when you stack something on them. Using it as a type filter meant actions like `stack_A_B` were pruned because `clear(B)` happened to be false in the initial state. This made the goal `on(A, B)` unreachable (no action could add it), so the problem was always UNSAT.
+
+**Fix:** Only use *static* predicates — ones that never appear in any action's effects — as type filters. Dynamic predicates like `clear` are now ignored during pruning.
+
+**Bug 2 — Wrong mutex condition**
+
+The initial mutex check declared two actions incompatible if their effects conflicted (e.g., one adds `f` and the other deletes `f`). But conflicting effects don't actually prevent the actions from being applied in sequence — they just mean one undoes the other. Only *precondition* violations matter for exists-step mutex.
+
+**Fix:** Removed the effect-conflict check; only precondition interference (`a.del_eff ∩ b.pos_pre ≠ ∅` or vice versa) triggers a mutex.
 
 ### Benchmark Results
 
-| Problem | Optimal horizon | Actions in plan | Solve time |
-|---------|:--------------:|:--------------:|:-----------:|
-| Blocksworld 3 blocks (`on_a_b ∧ on_b_c`) | 6 | 6 | ~0.01 s |
+| Problem | Horizon found | Actions | Solve time |
+|---------|:------------:|:-------:|:----------:|
+| Blocksworld 4 blocks | 6 | 6 | ~0.01 s |
 | Depot (`depotprob1818`) | 4 | 15 | ~0.08 s |
 | Trivial 1-action problem | 1 | 1 | <0.01 s |
 
-### Additional Flags (SATplan only)
+### SATplan-Only Flags
 
 | Flag | Effect |
 |------|--------|
-| `-nocwa` | Disable closed-world assumption at t=0 |
-| `-noeffects` | Omit explicit effect clauses (rely on frame axioms alone) |
+| `-nocwa` | Disable closed-world assumption at t=0 (unknown fluents left unset) |
+| `-noeffects` | Omit explicit effect clauses (rely on frame axioms only) |
 | `-nomutex` | Disable all mutex constraints |
-| `-forallstep` | Use forall-step mutex (more constrained than exists-step) |
-| `-sequential` | At most one action per time step |
+| `-forallstep` | Stricter mutex: actions are mutex if either ordering fails (fewer parallel actions allowed) |
+| `-sequential` | Allow at most one action per time step (sequential planning) |
 
 ---
 
-## 3. Graph Visualization (`visualize_graphplan.py`, `visualize_graphplan_clustered.py`)
+## 3. Graph Visualization
 
-Interactive/static renderers for the BlackBox planning graph, built with `matplotlib`.
+Two interactive graph renderers built with `matplotlib` let you see the planning graph grow layer by layer.
 
 ### Standard Renderer (`visualize_graphplan.py`)
 
-Three-column layout per layer: **Facts @ t | Actions @ t | Facts @ t+1**.
+Displays three columns per layer: **Facts @ t | Actions @ t | Facts @ t+1**.
 
+**Color key:**
+- Blue = reachable fact
+- Yellow = goal fact  
+- Green = real action
+- Gray = no-op (a "do nothing" placeholder action)
+- Red border = has at least one mutex partner
+
+**Edge key:**
+- Dark edges = precondition links (fact required by action)
+- Green edges = positive effect (action adds this fact)
+- Red edges = delete effect (action removes this fact)
+- Red arcs = mutex pair
+
+**Navigation:** Left/Right arrow keys step through layers; `s` saves the current layer as PNG; `q` or Escape quits.
 
 ### Clustered Renderer (`visualize_graphplan_clustered.py`)
 
-Alternative predicate-clustered layout for Blocksworld. Groups facts by predicate in a semantic status-board layout:
-- Top ~55%: `on(x,y)` N×N reachability grid
-- Middle strips: `clear(x)`, `ontable(x)`, `holding(x)`, `handempty`
-- Bottom ~20%: real actions in compact multi-column list
-- No edge drawing — focuses on fact reachability state
+An alternative layout designed for Blocksworld. Instead of edges, it groups facts by predicate into a semantic status board:
+- Top: `on(x,y)` shown as an N×N reachability grid
+- Middle: `clear(x)`, `ontable(x)`, `holding(x)`, `handempty`
+- Bottom: real actions in a compact list
+
+This makes it easier to see *what is true* at each horizon rather than tracing individual causal links.
 
 ---
 
-## 4. Animations (`animate_blocksworld.py`, `animate_elevator.py`)
+## 4. Animations
+
+Two animated demos show the planner working in real time. Each uses a two-panel layout: the **planning graph growing** on the left and the **world executing the plan** on the right.
 
 ### Demos
 
-**Blocksworld**
+**Blocksworld** — a robotic arm stacks blocks into a goal configuration
 
 ![Blocksworld demo](BlocksWorld_Demo.gif)
 
-**Elevator**
+**Elevator** — one or two elevators deliver passengers to their goal floors
 
 ![Elevator demo](Elevator_demo.gif)
 
+### What the Animation Shows
 
+1. **Search phase** (before a plan is found): the planning graph grows one layer per frame. The world panel shows the best partial plan found so far — how close the planner is getting to the goal.
+2. **Execution phase** (once a plan is found): the world panel animates the plan step by step with smooth interpolation.
 
-Two-panel `matplotlib` animations combining the planning graph with a world-state visualization. Both support `--save <path>` to export MP4 or GIF.
+### Blocksworld (`animate_blocksworld.py`)
 
-### Blocksworld Animation (`animate_blocksworld.py`)
-
-- **Left panel:** Planning graph growing horizon by horizon.
-- **Right panel:** Robotic-arm blocks world. Block movement uses smooth three-phase interpolation (lift → slide → lower).
-- **Search phase:** shows the best partial plan found so far (highest number of goals achieved) with its final state.
-- **Execution phase:** once a plan is found, animates it step by step.
+- Block movement uses three-phase smooth interpolation: lift → slide → lower.
 - Goal blocks are highlighted with a green border.
-- `--clustered` flag switches the left panel to the predicate-clustered layout.
+- `--clustered` flag switches the graph panel to the predicate-clustered layout.
 
-### Elevator Animation (`animate_elevator.py`)
+### Elevator (`animate_elevator.py`)
 
-- **Left panel:** Same planning-graph renderer.
-- **Right panel:** Building schematic with elevator shaft(s), a smoothly moving car, and passengers as colored circles. Passengers inside the car appear as smaller inset circles.
-- Supports multi-elevator problems (`elevator_problem2.pddl`).
-- Goal passengers highlighted with a green border.
-- 12 sub-frames per execution step at 20 fps.
+- Building schematic with shaft(s), a smoothly moving car, and passengers as colored circles.
+- Passengers inside the car appear as smaller inset circles.
+- Supports single and multi-elevator problems.
 
-### Shared Animation Options
+### Animation Options (both scripts)
 
 | Flag | Description |
 |------|-------------|
-| `--steps N` | Max horizons to search |
-| `--interval N` | Milliseconds per logical plan step |
-| `--save <path>` | Export as `.mp4` or `.gif` |
-| `--no-noop` | Hide NOOP actions in graph panel |
-| `--max-facts N` | Cap fact nodes displayed per column |
-| `--max-actions N` | Cap action nodes displayed per column |
+| `--steps N` | Max horizons to search before giving up |
+| `--interval N` | Milliseconds per plan step during execution |
+| `--save <path>` | Export as `.mp4` or `.gif` instead of displaying |
+| `--no-noop` | Hide no-op actions in the graph panel |
+| `--max-facts N` | Cap the number of fact nodes shown per column |
+| `--max-actions N` | Cap the number of action nodes shown per column |
 
 ---
 
-## 5. SAT Solvers Available (Both Planners)
+## 5. Available SAT Solvers
 
-| Solver | Backend | Incremental | Notes |
-|--------|---------|:-----------:|-------|
-| `cadical` | PySAT (CaDiCaL 1.9.5) | Yes | Default; top SAT competition performer |
-| `glucose` | PySAT (Glucose 4.2) | Yes | Strong on industrial benchmarks |
-| `maple` | PySAT (MapleChrono) | Yes | SAT Competition 2018 winner |
-| `minisat` | PySAT (MinisatGH) | Yes | Classic CDCL solver |
-| `dpll` | Pure Python | No | Jeroslow-Wang heuristic; no clause learning |
-| `kissat` | External binary | No | State-of-the-art; pip or build from source |
-| `walksat` | External binary | No | Stochastic local search; incomplete (no UNSAT proof) |
-| `graphplan` | Built-in | — | BlackBox only; backward-chaining search |
+Both planners support the same set of SAT solver backends. Modern CDCL solvers (CaDiCaL, Glucose, etc.) are dramatically faster than naive search for most planning problems.
 
-Incremental solvers reuse learned clauses across horizons — significantly faster on large problems.
+| Solver | How it's used | Incremental? | Notes |
+|--------|--------------|:------------:|-------|
+| `cadical` | PySAT library | Yes | Default; top-ranked in SAT competitions |
+| `glucose` | PySAT library | Yes | Strong on structured/industrial problems |
+| `maple` | PySAT library | Yes | SAT Competition 2018 winner |
+| `minisat` | PySAT library | Yes | Classic baseline CDCL solver |
+| `dpll` | Pure Python | No | Basic DPLL with Jeroslow-Wang heuristic; educational |
+| `kissat` | External binary | No | State-of-the-art; install via pip or build from source |
+| `walksat` | External binary | No | Stochastic local search; fast but can't prove UNSAT |
+| `graphplan` | Built-in | — | BlackBox only; classic backward-chaining search (no SAT) |
+
+**Incremental** means the solver session stays open across horizons — learned clauses carry over, so the solver doesn't start from scratch every time the horizon grows. This makes a large difference in speed on harder problems.
 
 ---
 
 ## 6. SATplan AIMA (`SATplan_AIMA/`)
 
-An earlier prototype implementing `SATPlan` through the AIMA (Russell & Norvig) planning framework. Uses propositional logic encoding with a CDCL solver (`cdcl_satisfiable`) from `logic.py`. Includes:
+An earlier prototype that implements SATPlan using the code framework from the textbook *Artificial Intelligence: A Modern Approach* (Russell & Norvig). This was the starting point before the full PDDL-based rewrite.
 
-- `planning.py` — `PlanningProblem`, `Action`, `SATPlan`
-- `logic.py` — propositional logic, `to_cnf`, `cdcl_satisfiable`
-- `run_blocks_satplan.py` — Blocksworld demo (iterates horizons 0–10)
-- `driver_log_satplan.py` — DriverLog domain demo
+It encodes planning problems as propositional logic formulas and solves them with a built-in CDCL solver. Included demos:
+- `run_blocks_satplan.py` — Blocksworld (tries horizons 0–10)
+- `driver_log_satplan.py` — DriverLog domain
 
-This module served as the baseline before the full PDDL-based rewrite.
-
----
-
-## 7. IPC Benchmark Domains
-
-The `IPC3/` directory contains International Planning Competition 3 domains for future benchmarking:
-
-- **Depots** (Strips, Numeric, SimpleTime, Time)
-- **DriverLog** (Strips, Numeric, SimpleTime, Time, HardNumeric)
-- **ZenoTravel** (Strips, Numeric, SimpleTime, Time)
-- **Rovers** (Strips, Numeric, SimpleTime, Time)
-- **Satellite** (Strips, Numeric, SimpleTime, Time, Complex, HardNumeric)
-- **FreeCell**, **Settlers**
-
-The Strips variants are compatible with both planners.
+This module is useful as a simpler, more readable reference for understanding how SATPlan works at a high level before diving into the full PDDL systems.
 
 ---
 
-## 8. Supported PDDL Subset
+## 7. IPC Benchmark Domains (`IPC3/`)
 
-Both planners support typed STRIPS:
+This directory contains planning domains from the **International Planning Competition 3** — a major benchmark suite used to evaluate AI planners. Each domain comes in several variants (STRIPS-only, Numeric, Timed, etc.). The STRIPS variants work directly with both planners.
+
+| Domain | What it models |
+|--------|---------------|
+| Depots | Moving crates between depots using trucks and hoists |
+| DriverLog | Routing trucks and drivers across a road network |
+| ZenoTravel | Flying passengers between cities (fuel-aware) |
+| Rovers | Planetary rovers collecting samples and transmitting data |
+| Satellite | Scheduling satellite instruments to take images |
+| FreeCell | The card game |
+| Settlers | Resource-gathering and settlement building |
+
+---
+
+## 8. Supported PDDL
+
+Both planners handle **typed STRIPS** — the most common planning problem format. More advanced PDDL features (numeric quantities, time, conditional effects) are not supported.
 
 | Supported | Not supported |
 |-----------|--------------|
-| `:strips` | Conditional effects |
-| `:typing` | Disjunctive preconditions |
-| `:equality` | Quantified goals |
-| — | Derived predicates |
-| — | Numeric fluents |
-| — | Durative actions |
+| `:strips` — basic add/delete effects | Conditional effects |
+| `:typing` — typed objects | Disjunctive preconditions |
+| `:equality` — object equality tests | Quantified goals (`forall`, `exists`) |
+| | Derived predicates |
+| | Numeric fluents |
+| | Durative (timed) actions |
 
 ---
 
-## Summary of Key Achievements
+## Summary
 
-1. **Full Python rewrite of BlackBox** — complete PDDL → GraphPlan → CNF → SAT pipeline with 8 solver backends, solver chaining, incremental encoding, and action minimization.
-2. **Original direct STRIPS-to-SAT planner** — independent implementation without a planning graph intermediate; faster on some benchmarks (Depot: 15 actions at horizon 4 in 0.08 s).
-3. **Interactive planning graph visualizer** with two layout modes (standard and predicate-clustered).
-4. **Two animated demos** (Blocksworld and Elevator) combining live graph growth with smooth world-state simulation, exportable as MP4/GIF.
-5. **Shared infrastructure** — `pddl_parser.py`, `sat_interface.py`, `data_structures.py` are reused across both planners with no duplication.
-6. **Clause analysis utility** (`count_clauses.py`) for profiling CNF encoding size by category at each horizon.
+| What was built | Details |
+|---------------|---------|
+| BlackBox planner (Python rewrite) | PDDL → GraphPlan → CNF → SAT; 8 solver backends; incremental encoding; action minimization |
+| SATplan (original) | Direct STRIPS → CNF without a planning graph; faster on some benchmarks |
+| Two critical bugs fixed | Grounding pruning (static vs. dynamic predicates) and mutex computation |
+| Planning graph visualizer | Two layout modes: standard edge-based and predicate-clustered |
+| Animated demos | Blocksworld and Elevator with live graph growth + smooth world execution |
+| Shared infrastructure | Parser, SAT interface, and data structures reused across both planners |
+| Clause analysis tool | Per-category CNF clause counter for profiling encoding size |
