@@ -21,6 +21,22 @@ GraphPlan is a classic planning algorithm (Blum & Furst, 1997). It builds a **pl
 
 **SATPlan** (Kautz & Selman, 1992) encodes the planning problem as a SAT formula and hands it to a modern SAT solver. **BlackBox** (Kautz & Selman, 1998) combines both ideas: first build a GraphPlan graph to get structure and mutex information, then encode *that graph* as CNF clauses and solve with SAT. This is often faster than pure GraphPlan backward search because modern SAT solvers are highly optimized.
 
+### Why BlackBox Beats Pure GraphPlan
+
+Pure GraphPlan finds plans using **backward search**: starting from the goal layer, it tries to select a set of non-mutex actions that achieve the goals, then recurses back toward the initial state. This works, but has two major weaknesses:
+
+1. **Exponential search space.** At each layer, GraphPlan must choose which subset of actions to apply. The number of possible subsets grows exponentially with the number of actions — even with mutex pruning, the backtracking search can be very slow on hard problems.
+
+2. **No learning.** When GraphPlan tries a combination that fails, it records it as a "nogood" (a dead end to avoid), but this information is discarded between horizons. Every time the horizon grows by one step, the search mostly starts over.
+
+BlackBox sidesteps both problems by handing the search off to a **SAT solver**:
+
+- Modern SAT solvers (like CaDiCaL or Glucose) use **Conflict-Driven Clause Learning (CDCL)** — when they hit a dead end, they analyze *why* it failed, derive a new clause that rules out that failure pattern, and add it permanently to the formula. This learned information prunes enormous parts of the search space automatically.
+- SAT solvers are also highly optimized with decades of engineering (unit propagation, watched literals, restart strategies, variable activity heuristics), making them far faster in practice than hand-written backtracking search.
+- With **incremental SAT**, BlackBox keeps the solver session alive across horizons — all clauses learned at horizon *T* are still present at horizon *T+1*. The solver only needs to process the new layer, not restart from scratch.
+
+The planning graph is still valuable in BlackBox — it gives the SAT formula tighter mutex constraints than a direct encoding would, which means fewer satisfying assignments to search through. GraphPlan does the structural work; SAT does the combinatorial search.
+
 ### The Two Planners at a Glance
 
 | System | Approach |
