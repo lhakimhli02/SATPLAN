@@ -48,6 +48,65 @@ The key difference: BlackBox builds a planning graph first and encodes that; SAT
 
 ---
 
+## Prerequisites and Background Reading
+
+This project assumes familiarity with basic AI concepts (search, propositional logic). Before reading the implementation details, the following background will help:
+
+**Core concepts you should understand:**
+- **Propositional logic** — variables, AND/OR/NOT, satisfiability (SAT)
+- **STRIPS planning** — actions with preconditions and add/delete effects
+- **CNF (Conjunctive Normal Form)** — a formula expressed as a conjunction of clauses, each a disjunction of literals. SAT solvers work exclusively on CNF.
+
+**Key papers (read in this order):**
+1. Kautz & Selman (1992) — *"Planning as Satisfiability"* (ECAI) — the original SATPlan idea: encode planning as SAT
+2. Blum & Furst (1997) — *"Fast Planning Through Planning Graph Analysis"* (Artificial Intelligence) — the GraphPlan algorithm
+3. Kautz & Selman (1998) — *"BlackBox: A New Approach to the Application of Theorem Proving to Problem Solving"* (AIPS Workshop) — combines GraphPlan + SAT
+4. McDermott et al. (1998) — *"PDDL — The Planning Domain Definition Language"* — the file format both planners use
+
+**For SAT solver internals:**
+- Marques-Silva et al. (2021) — *"Conflict-Driven Clause Learning SAT Solvers"* (Handbook of Satisfiability) — explains CDCL, the algorithm inside CaDiCaL/Glucose/MiniSat
+
+---
+
+## Getting Started
+
+**Installation (Python 3.10+):**
+
+```bash
+pip install python-sat matplotlib
+```
+
+**Run BlackBox on the included Blocksworld example:**
+
+```bash
+cd Blackbox/blackbox_python
+python blackbox.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
+```
+
+**Run SATplan on the included Depot example:**
+
+```bash
+cd satplan_python
+python satplan.py -o pddl_problems/domain.pddl -f pddl_problems/problem.pddl
+```
+
+**Watch an animated demo:**
+
+```bash
+cd Blackbox/blackbox_python
+python animate_blocksworld.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
+```
+
+**See per-category clause counts as the formula grows:**
+
+```bash
+python count_clauses.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
+```
+
+See the [README](README.md) for the complete flag reference and solver chaining syntax.
+
+---
+
 ## 1. BlackBox Python (`blackbox_python/`)
 
 A complete Python rewrite of the classic BlackBox planner (Kautz & Selman, 1998).
@@ -360,7 +419,7 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 
 ---
 
-## Summary
+## Accomplished So Far
 
 | What was built | Details |
 |---------------|---------|
@@ -371,3 +430,24 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 | Animated demos | Blocksworld and Elevator with live graph growth + smooth world execution |
 | Shared infrastructure | Parser, SAT interface, and data structures reused across both planners |
 | Clause analysis tool | Per-category CNF clause counter for profiling encoding size |
+| Benchmark runs | Blocksworld (6 steps, ~0.01s), Depot depotprob1818 (15 actions, ~0.08s), trivial 1-action problem |
+| Encoding variants tested | `-axioms` presets 7/15/31/63/129 benchmarked; AMO ladder vs. pairwise clause counts measured |
+| Mutex semantics comparison | Both exists-step (default) and forall-step (`-forallstep`) implemented and verified correct |
+| Sequential vs. parallel planning | `-sequential` flag implemented and tested alongside parallel (exists-step) planning |
+| IPC3 benchmark suite integrated | 7 competition domains available for testing both planners out of the box |
+| AIMA prototype | Earlier textbook-based SATPlan prototype included as a simpler pedagogical reference |
+
+---
+
+## How This Repo Was Created
+
+This project was built on top of several existing resources and tools:
+
+**Original BlackBox planner**
+The `blackbox_python/` implementation is a Python rewrite of the original BlackBox planner by Henry Kautz and Bart Selman (1998). The original C source code and documentation are available at [Henry Kautz's BlackBox page](https://henrykautz.com/). The core algorithms — planning graph construction, CNF encoding presets, AMO ladder encoding, and solver chaining — follow the design described in their AIPS-98 paper.
+
+**Planning domains**
+PDDL domain and problem files were sourced and adapted using the [Planning.Domains editor](https://editor.planning.domains), a browser-based environment for writing, testing, and sharing PDDL problems. The IPC3 benchmark domains (`IPC3/`) come from the International Planning Competition 3 benchmark suite.
+
+**Implementation assistance**
+The Python implementation — including the SATplan direct encoding, bug fixes to the grounding and mutex logic, the visualization and animation scripts, and the overall project structure — was developed with assistance from [Claude](https://claude.ai/claude-code) (Anthropic's AI coding assistant).
