@@ -357,7 +357,128 @@ Two animated demos show the planner working in real time. Each uses a two-panel 
 
 ---
 
-## 5. Available SAT Solvers
+## 5. Live Elevator Simulation (`live-graphplan/`)
+
+A dynamic planning system where passengers arrive at random floors during execution. The planner re-invokes GraphPlan from the **current state** each time new passengers appear, rather than replanning from the original initial state or patching the old plan by hand.
+
+### The Problem
+
+Classical planning assumes a closed world: the initial state and goals are fully known before the solver runs. Real systems do not have this luxury. An elevator controller must handle passengers who press the button mid-trip. The question is how to respond without throwing away all prior planning work.
+
+Two naive options have obvious costs:
+
+- **Do nothing** — ignore new arrivals until the current plan finishes, then replan. Passengers wait unnecessarily.
+- **Full restart** — on every arrival, discard the current plan and replan from the initial state. Wasteful: you re-derive everything you already knew.
+
+The approach here is in between: **incremental replanning from the current state**. The elevator's executed history is preserved; only the unexecuted suffix is replaced by a new GraphPlan solution computed from where the elevator actually is right now, with all currently unserved passengers (including those already boarded in the car).
+
+### Two-Phase Design
+
+**Phase 1 — Initial solve (once)**
+
+`solve_graphplan()` is called once at startup with a set of seed passengers. It generates a PDDL problem file from the initial state, runs the BlackBox GraphPlan+SAT pipeline, and returns a list of `PlanStep` objects representing the plan. This is identical to the standard BlackBox solve.
+
+**Phase 2 — Incremental replanning (on each arrival batch)**
+
+Each simulation step:
+1. New passengers are generated stochastically (probability `p` per floor).
+2. If any arrived, `solve_graphplan_from_state()` is called with:
+   - The elevator's **current floor**
+   - All passengers currently **waiting** at their pickup floors
+   - All passengers currently **boarded** in the elevator (represented as `(boarded p e0)` in the PDDL `:init` section so the planner knows to *leave* them rather than board them)
+3. The new plan replaces `plan_steps[current_step:]`. The executed prefix is kept as history; `current_step` is unchanged.
+4. One plan step is executed and state is updated.
+
+Because the new PDDL problem starts from the current elevator floor with the current passenger set, the replanner produces an optimal plan from *this moment* — not from the beginning.
+
+### Architecture
+
+```
+live-graphplan/
+    │
+    ├── elevator_domain.py   ← PDDL generation, GraphPlan solve, plan extraction
+    ├── live_simulator.py    ← simulation loop, replanning trigger, state tracking
+    ├── plan_repair.py       ← earlier repair-only approach (kept for reference)
+    └── main.py              ← CLI demo
+```
+
+| File | Role |
+|------|------|
+| `elevator_domain.py` | `generate_problem_pddl_from_state()` builds PDDL with boarded passengers in `:init`; `solve_graphplan_from_state()` runs the full BlackBox pipeline from a mid-execution state; `_extract_steps()` converts the solved graph into a `list[PlanStep]` |
+| `live_simulator.py` | `LiveElevatorSimulator` drives the loop; `_replan()` collects waiting + boarded passengers and calls `solve_graphplan_from_state`; `_apply_action()` tracks which passengers have actually reached their destination |
+| `main.py` | ASCII building visualizer; per-step replan indicator with timing; summary statistics |
+
+### Correctness Fix: the `can_stop` Guard
+
+A subtle bug exists in the naive horizon loop:
+
+```python
+# naive — WRONG for mid-execution replanning
+for horizon in range(1, max_steps + 1):
+    if planner.do_plan(horizon) == Sat:   # ← triggers too early
+        return _extract_steps(graph, horizon, lift_floor)
+```
+
+`do_plan(horizon)` internally calls `setup_goals(horizon)`, which only includes goals that are *reachable* in the planning graph at that horizon. If two goals happen to be reachable at `horizon = 1` (e.g., leaving two already-boarded passengers at the current floor), the SAT solver returns `Sat` for just those two goals, ignoring the rest. The plan covers only a fraction of the passengers.
+
+The fix is to call `graph.can_stop(horizon)` before `do_plan`. `can_stop` checks that **every** goal fact is present in the graph layer at `horizon` and that no two are mutex — exactly the condition that guarantees the solver will be asked about all goals:
+
+```python
+for horizon in range(1, max_steps + 1):
+    if not graph.can_stop(horizon):   # all goals reachable and non-mutex?
+        continue
+    if planner.do_plan(horizon) == Sat:
+        return _extract_steps(graph, horizon, lift_floor)
+```
+
+This fix applies to both `solve_graphplan` (initial solve) and `solve_graphplan_from_state` (replanning). For the initial solve it was harmless — goals with waiting passengers are not reachable at small horizons — but for mid-execution replanning with boarded passengers it was critical.
+
+### Modeling Boarded Passengers in PDDL
+
+The elevator domain's `leave` action has the precondition `(boarded ?p ?lift)`. If a passenger is already in the elevator when we replan, they are represented in the new PDDL `:init` section as:
+
+```pddl
+(boarded p3 e0)
+```
+
+rather than `(passenger-at p3 f_pickup)`. Their goal remains `(passenger-at p3 f_dest)`. The planner then knows it only needs a `leave` action at the right floor — no `board` is required. This correctly models the elevator's mid-trip state without any special casing in the planner itself.
+
+### Running the Demo
+
+```bash
+cd live-graphplan
+python main.py --floors 5 --prob 0.25 --steps 20 --seed-passengers 2 --seed 42
+```
+
+| Flag | Description |
+|------|-------------|
+| `--floors N` | Number of floors (default: 5) |
+| `--prob P` | Per-floor passenger arrival probability each step (default: 0.25) |
+| `--steps N` | Total simulation steps to run (default: 20) |
+| `--seed-passengers N` | Seed passengers given to the initial GraphPlan solve (default: 2) |
+| `--seed S` | Random seed for reproducibility (default: 42) |
+| `--stop-on-done` | Halt once all known passengers are delivered |
+| `--debug` | Print GraphPlan solver output during each replan |
+
+### Example Output
+
+```
+  Step   9  │  Plan steps remaining: 6  ↻ REPLANNED (223 ms)
+  ────────────────────────────────────────────────────
+  F3  [p13,p14,p16]  wait: p1,p12,p5
+  F2       
+  F1         wait: p15
+  F0       
+  NEW ARRIVALS : p15(F1→F3), p16(F2→F3)
+  Actions      : move-up(f2→f3), board(p14@f2), board(p16@f2)
+  Delivered    : ['p0', 'p10', 'p11', 'p2', 'p3', 'p4', 'p6', 'p7', 'p8', 'p9']
+```
+
+The `↻ REPLANNED` tag shows when GraphPlan was re-invoked and how long it took. The new plan (6 remaining steps) accounts for the elevator's current position, all boarded passengers, all waiting passengers, and the new arrivals — all solved together optimally in a single GraphPlan call.
+
+---
+
+## 6. Available SAT Solvers
 
 Both planners support the same set of SAT solver backends. Modern CDCL solvers (CaDiCaL, Glucose, etc.) are dramatically faster than naive search for most planning problems.
 
@@ -376,7 +497,7 @@ Both planners support the same set of SAT solver backends. Modern CDCL solvers (
 
 ---
 
-## 6. SATplan AIMA (`SATplan_AIMA/`)
+## 7. SATplan AIMA (`SATplan_AIMA/`)
 
 An earlier prototype that implements SATPlan using the code framework from the textbook *Artificial Intelligence: A Modern Approach* (Russell & Norvig). This was the starting point before the full PDDL-based rewrite.
 
@@ -388,7 +509,7 @@ This module is useful as a simpler, more readable reference for understanding ho
 
 ---
 
-## 7. IPC Benchmark Domains (`IPC3/`)
+## 8. IPC Benchmark Domains (`IPC3/`)
 
 This directory contains planning domains from the **International Planning Competition 3** — a major benchmark suite used to evaluate AI planners. Each domain comes in several variants (STRIPS-only, Numeric, Timed, etc.). The STRIPS variants work directly with both planners.
 
@@ -404,7 +525,7 @@ This directory contains planning domains from the **International Planning Compe
 
 ---
 
-## 8. Supported PDDL
+## 9. Supported PDDL
 
 Both planners handle **typed STRIPS** — the most common planning problem format. More advanced PDDL features (numeric quantities, time, conditional effects) are not supported.
 
@@ -419,6 +540,135 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 
 ---
 
+## 10. Benchmark Study (`benchmarks/`)
+
+### Problems
+
+Six Blocksworld problems of three difficulty levels were used.
+All use the same 4-operator domain (`blocks_domain.pddl`).
+
+| ID | Description | Init state | Goal |
+|----|-------------|-----------|------|
+| S1 | 3 blocks, build tower | A, B, C on table | ON B A, ON C B |
+| S2 | 4 blocks, swap two towers | AB tower + CD tower | A on C on D on B |
+| M1 | 5 blocks, build full tower | All on table | ON A B, ON B C, ON C D, ON D E |
+| M2 | 5 blocks, merge towers | AB + CDE towers | A on B on C on D on E |
+| H1 | 7 blocks, build full tower | All on table | 6 on-top pairs |
+| H2 | 6 blocks, reverse tower | A-B-C-D-E-F tower | reversed F-E-D-C-B-A |
+
+Problems were scaled from 3 to 7 blocks. The H1 7-block tower is the hardest instance:
+grounding produces 56 actions and requires solving at horizon 12.
+
+### Configurations Benchmarked
+
+| Config | Planner | Description |
+|--------|---------|-------------|
+| BB-default | BlackBox | Graph + SAT; incremental encoding |
+| BB-noincsat | BlackBox | Graph + SAT; fresh solver per horizon |
+| SP-default | SATplan | Direct STRIPS→SAT; exists-step; incremental; ladder AMO |
+| SP-noincsat | SATplan | Direct STRIPS→SAT; non-incremental SAT |
+| SP-nomutex | SATplan | Mutex constraints disabled |
+| SP-forallstep | SATplan | Forall-step mutex semantics |
+| SP-pairwiseamo | SATplan | Pairwise AMO encoding instead of ladder |
+| SP-forall+nomutex | SATplan | Forall-step + no mutex (minimal constraint set) |
+
+### Results
+
+All timings are wall-clock seconds on a MacBook (Apple Silicon). Timeout was 60 s per run.
+All runs solved within 2 s; no timeouts occurred.
+
+#### Small problems (3–4 blocks)
+
+| Config | S1 time | S1 plan | S2 time | S2 plan |
+|--------|---------|---------|---------|---------|
+| BB-default | 0.130 s | 4 | 0.214 s | 10 |
+| BB-noincsat | 0.096 s | 4 | 0.256 s | 10 |
+| SP-default | 0.084 s | 4 | 0.095 s | 10 |
+| SP-noincsat | 0.089 s | 4 | 0.138 s | 10 |
+| SP-nomutex | 0.080 s | 5 | 0.081 s | 14 |
+| SP-forallstep | 0.079 s | 4 | 0.094 s | 10 |
+| SP-pairwiseamo | 0.078 s | 4 | 0.091 s | 10 |
+| SP-forall+nomutex | 0.076 s | 5 | 0.078 s | 14 |
+
+#### Medium problems (5 blocks)
+
+| Config | M1 time | M1 plan | M2 time | M2 plan |
+|--------|---------|---------|---------|---------|
+| BB-default | 0.275 s | 8 | 0.152 s | 6 |
+| BB-noincsat | 0.321 s | 8 | 0.144 s | 6 |
+| SP-default | 0.099 s | 8 | 0.091 s | 6 |
+| SP-noincsat | 0.136 s | 8 | 0.112 s | 6 |
+| SP-nomutex | 0.081 s | 11 | 0.081 s | 8 |
+| SP-forallstep | 0.097 s | 8 | 0.086 s | 6 |
+| SP-pairwiseamo | 0.096 s | 8 | 0.085 s | 6 |
+| SP-forall+nomutex | 0.085 s | 11 | 0.083 s | 8 |
+
+#### Hard problems (6–7 blocks)
+
+| Config | H1 time | H1 plan | H2 time | H2 plan |
+|--------|---------|---------|---------|---------|
+| BB-default | 1.161 s | 12 | 0.295 s | 12 |
+| BB-noincsat | 1.696 s | 12 | 0.278 s | 12 |
+| SP-default | 0.715 s | 12 | 0.110 s | 12 |
+| SP-noincsat | 1.141 s | 12 | 0.253 s | 12 |
+| SP-nomutex | 0.087 s | 28 | 0.089 s | 26 |
+| SP-forallstep | 0.554 s | 12 | 0.104 s | 12 |
+| SP-pairwiseamo | 0.534 s | 12 | 0.109 s | 12 |
+| SP-forall+nomutex | 0.091 s | 28 | 0.087 s | 26 |
+
+### Analysis
+
+**BlackBox vs SATplan.**
+SATplan (direct STRIPS→SAT) consistently outperforms BlackBox on every problem.
+On the hardest instance (H1, 7 blocks), SATplan is **1.6× faster** (0.72 s vs 1.16 s).
+The gap grows with problem size: on small problems the difference is marginal (~40 ms),
+but on H1 BlackBox spends most of its time constructing the planning graph (56 actions,
+7-level graph) before even encoding the SAT formula.
+Both planners find **identical optimal plan lengths**, confirming they solve the same problem.
+
+**Incremental SAT.**
+Keeping the SAT solver session alive across horizon increments is consistently beneficial.
+On H1 the speedup is **1.6× for SATplan** (0.715 s vs 1.141 s) and
+**1.5× for BlackBox** (1.161 s vs 1.696 s).
+The benefit arises because at each new horizon only one new time-layer of clauses needs to be
+learned; previous horizons are already in the solver's clause database.
+
+**Mutex on vs off.**
+Disabling mutex constraints (`-nomutex`) makes the SAT instance much easier to solve —
+H1 drops from 0.715 s to 0.087 s — but the resulting plan is **2.3× longer**
+(28 steps vs 12).  Without mutual-exclusion constraints, the planner is allowed to schedule
+conflicting actions in the same time step, which is unsound for sequential execution.
+This confirms that mutex constraints are essential for plan correctness, not optional.
+
+**Exists-step vs forall-step.**
+Forall-step semantics (every non-mutex action at a time step must execute if its
+preconditions hold) adds more constraints.  On H1 it is paradoxically **slightly faster**
+(0.554 s vs 0.715 s) while finding the **same plan length** (12).
+The tighter constraint set reduces the search space the SAT solver must explore.
+On smaller problems the difference disappears (both ~0.08–0.10 s).
+
+**Ladder AMO vs pairwise AMO.**
+For Blocksworld, pairwise AMO is marginally faster or tied with ladder AMO
+(H1: 0.534 s vs 0.715 s).
+This is counter-intuitive: ladder encoding uses O(3k) clauses vs O(k²/2) for pairwise,
+so ladder should win for large cliques.
+The reason is that Blocksworld mutex cliques are **small** (2–4 actions per clique at most),
+and ladder encoding introduces auxiliary variables that add overhead for small cliques.
+On domains with larger mutex cliques (e.g., logistics, satellite) ladder encoding would
+show a clear advantage.
+
+**Summary table.**
+
+| Dimension | Winner | Effect on plan length | Notes |
+|-----------|--------|-----------------------|-------|
+| Planner | SATplan faster | Same | 1.6× on hardest instance |
+| Incremental SAT | Incremental faster | Same | 1.5–1.6× speedup |
+| Mutex | Off is faster | Longer (2.3×) | Off is unsound |
+| Step semantics | Forall-step slightly faster | Same | Tighter constraint = less search |
+| AMO encoding | Pairwise faster here | Same | Domain-dependent; ladder wins on large cliques |
+
+---
+
 ## Accomplished So Far
 
 | What was built | Details |
@@ -428,9 +678,11 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 | Two critical bugs fixed | Grounding pruning (static vs. dynamic predicates) and mutex computation |
 | Planning graph visualizer | Two layout modes: standard edge-based and predicate-clustered |
 | Animated demos | Blocksworld and Elevator with live graph growth + smooth world execution |
+| Live elevator simulation | Stochastic passenger arrivals; GraphPlan replanned from current state (not initial state) on each batch of arrivals; boarded passengers encoded as `(boarded p e0)` in PDDL `:init`; `can_stop` guard prevents partial-goal false positives |
 | Shared infrastructure | Parser, SAT interface, and data structures reused across both planners |
 | Clause analysis tool | Per-category CNF clause counter for profiling encoding size |
 | Benchmark runs | Blocksworld (6 steps, ~0.01s), Depot depotprob1818 (15 actions, ~0.08s), trivial 1-action problem |
+| Full benchmark study | 6 Blocksworld problems × 8 configs; SATplan 1.6× faster than BlackBox on hardest instance; incremental SAT 1.5–1.6× faster; mutex required for plan correctness (off → 2.3× longer plans) |
 | Encoding variants tested | `-axioms` presets 7/15/31/63/129 benchmarked; AMO ladder vs. pairwise clause counts measured |
 | Mutex semantics comparison | Both exists-step (default) and forall-step (`-forallstep`) implemented and verified correct |
 | Sequential vs. parallel planning | `-sequential` flag implemented and tested alongside parallel (exists-step) planning |

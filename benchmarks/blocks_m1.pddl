@@ -1,0 +1,8 @@
+;;; MEDIUM-1: 5 blocks all on table, build tower E-D-C-B-A (A on top)
+(define (problem BLOCKS-M1)
+  (:domain BLOCKS)
+  (:objects A B C D E)
+  (:init (CLEAR A) (CLEAR B) (CLEAR C) (CLEAR D) (CLEAR E)
+         (ONTABLE A) (ONTABLE B) (ONTABLE C) (ONTABLE D) (ONTABLE E)
+         (HANDEMPTY))
+  (:goal (and (ON A B) (ON B C) (ON C D) (ON D E))))

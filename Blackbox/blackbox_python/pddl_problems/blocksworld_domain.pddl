@@ -46,3 +46,4 @@
 		   (not (clear ?x))
 		   (not (handempty))
 		   (not (on ?x ?y)))))
+

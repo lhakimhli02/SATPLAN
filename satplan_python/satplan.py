@@ -101,6 +101,8 @@ def main():
                         help='Disable mutex constraints')
     parser.add_argument('-forallstep', action='store_true',
                         help='Use forall-step mutex semantics (default: exists-step)')
+    parser.add_argument('-pairwiseamo', action='store_true',
+                        help='Use pairwise AMO encoding instead of ladder (O(k²) vs O(k))')
     parser.add_argument('-sequential', action='store_true',
                         help='Sequential planning: at most one action per timestep')
     parser.add_argument('-nocwa', action='store_true',
@@ -256,6 +258,7 @@ def main():
         emit_mutex=not args.nomutex,
         close_world=not args.nocwa,
         sequential=args.sequential,
+        use_ladder_amo=not args.pairwiseamo,
     )
 
     max_time = fixed_time if fixed_time > 0 else max_auto

@@ -50,7 +50,8 @@ class STRIPSEncoder:
                  emit_effects: bool = True,
                  emit_mutex: bool = True,
                  close_world: bool = True,
-                 sequential: bool = False):
+                 sequential: bool = False,
+                 use_ladder_amo: bool = True):
         """
         Parameters
         ----------
@@ -63,6 +64,7 @@ class STRIPSEncoder:
         emit_effects:   if True emit action→effect clauses (default True)
         emit_mutex:     if True emit mutex constraints (default True)
         close_world:    if True assert CWA at t=0 (default True)
+        use_ladder_amo: if True use ladder AMO; if False use pairwise (default True)
         """
         self.ground_actions = ground_actions
         self.all_fluents = all_fluents
@@ -74,6 +76,7 @@ class STRIPSEncoder:
         self.emit_mutex = emit_mutex
         self.close_world = close_world
         self.sequential = sequential
+        self.use_ladder_amo = use_ladder_amo
 
         # Fluent index (name → index into all_fluents)
         self._fluent_idx: dict[str, int] = {f: i for i, f in enumerate(all_fluents)}
@@ -383,6 +386,9 @@ class STRIPSEncoder:
 
     def _amo_ladder(self, lits: list[int]):
         """At-most-one via ladder encoding. O(k) clauses, O(k) aux vars."""
+        if not self.use_ladder_amo:
+            self._amo_pairwise(lits)
+            return
         k = len(lits)
         if k <= 1:
             return
@@ -400,6 +406,12 @@ class STRIPSEncoder:
             self.clauses.append([-aux[i - 1], aux[i]])
             self.clauses.append([-lits[i], -aux[i - 1]])
         self.clauses.append([-lits[k - 1], -aux[k - 2]])
+
+    def _amo_pairwise(self, lits: list[int]):
+        """At-most-one via pairwise encoding. O(k²/2) clauses, no aux vars."""
+        for i in range(len(lits)):
+            for j in range(i + 1, len(lits)):
+                self.clauses.append([-lits[i], -lits[j]])
 
     # ── Helpers ──────────────────────────────────────────────────────────
 
