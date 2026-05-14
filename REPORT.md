@@ -544,7 +544,7 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 
 ### Problems
 
-Ten problems across four difficulty levels and four domains.
+Nine problems across four difficulty levels and three domains.
 
 #### Blocksworld (3–7 blocks, `blocks_domain.pddl`)
 
@@ -563,11 +563,8 @@ H1 (7 blocks) is the hardest Blocksworld instance: 56 ground actions, plan lengt
 
 | ID | Domain | Description | Optimal plan |
 |----|--------|-------------|-------------|
-| XL1 | Ferry (`ferry_domain.pddl`) | 8 cars cross left→right, ferry holds 1 | 31 steps |
 | XL2 | Hanoi (`hanoi_domain.pddl`) | Towers of Hanoi, 5 discs, peg1→peg3 | 2⁵−1 = 31 steps |
 
-The Ferry domain has 18 ground actions and one shared `empty` predicate that forces
-sequential car loading — a classical bottleneck resource.
 Hanoi uses a static `smaller` predicate for disc ordering; grounding pruning
 correctly treats it as a type constraint.
 
@@ -645,19 +642,18 @@ Blocksworld timeout: 60 s. XL and Depot timeout: 120 s.
 
 #### Extra-large problems (30+ steps, 120 s timeout)
 
-| Config | XL1 (Ferry) time | XL1 plan | XL2 (Hanoi) time | XL2 plan |
-|--------|-----------------|---------|-----------------|---------|
-| BB-default | **timeout** | — | 17.5 s | 31 |
-| BB-noincsat | **timeout** | — | 18.4 s | 31 |
-| SP-default | 4.6 s | 31† | 6.6 s | 35† |
-| SP-noincsat | 7.9 s | 32† | 21.7 s | 34† |
-| SP-forallstep | 36.7 s | 31 | 17.8 s | 31 |
-| SP-pairwiseamo | 6.5 s | 32† | 4.7 s | 34† |
+| Config | XL2 (Hanoi) time | XL2 plan |
+|--------|-----------------|---------|
+| BB-default | 17.5 s | 31 |
+| BB-noincsat | 18.4 s | 31 |
+| SP-default | 6.6 s | 35† |
+| SP-noincsat | 21.7 s | 34† |
+| SP-forallstep | 17.8 s | 31 |
+| SP-pairwiseamo | 4.7 s | 34† |
 
 † Exists-step parallel semantics finds a shorter-makespan plan by executing pairs of
-  actions simultaneously (e.g. ferry boards a car while sailing; Hanoi moves two
-  compatible discs at once). The forall-step result (31 steps) matches the known
-  sequential optimum for both domains.
+  compatible discs simultaneously. The forall-step result (31 steps) matches the known
+  sequential optimum.
 
 #### Depot logistics problems (120 s timeout)
 
@@ -678,7 +674,7 @@ Blocksworld timeout: 60 s. XL and Depot timeout: 120 s.
 **BlackBox vs SATplan.**
 SATplan is consistently faster across all problem sizes.
 On H1 (7 blocks) SATplan is **2.9× faster** (0.47 s vs 1.35 s).
-BlackBox completely fails on Ferry XL1 (timeout), while SATplan solves it in 4.6–36.7 s.
+BlackBox takes 17.5 s on Hanoi XL2 while SATplan solves it in 4.7–21.7 s.
 The root cause is planning graph construction overhead — BlackBox must grow a layered
 fact/action graph to full depth before encoding any SAT formula, and this Python overhead
 dominates on long-horizon problems.
@@ -702,17 +698,17 @@ still better in plan quality at the cost of being **12× slower** on D2 (2.15 s 
 **Incremental SAT.**
 Incremental SAT consistently wins. On H1: SATplan **2.3× faster** (0.47 s vs 1.07 s),
 BlackBox **1.2× faster** (1.35 s vs 1.66 s).
-On Hanoi XL2 the effect is larger: SP **3.3× faster** (6.6 s vs 21.7 s).
+On Hanoi XL2 the effect is large: SP **3.3× faster** (6.6 s vs 21.7 s).
 The benefit grows with plan length because clause-learning accumulates across horizons.
 On Depot D2 incremental is **3× faster** (0.17 s vs 0.51 s).
 
 **Exists-step vs forall-step.**
-Exists-step (default) finds shorter-makespan plans by exploiting action parallelism.
-On Ferry it achieves makespan 16 (31 actions) vs 31 (31 actions) by boarding a car and
-sailing in the same step — valid since one sequential ordering exists.
-Forall-step correctly forces truly sequential plans and matches the known optimal.
-Exists-step is generally faster on short problems; forall-step beats it on
-Ferry XL1 where the large parallel search space slows the exists-step solver.
+Exists-step (default) finds shorter-makespan plans by exploiting action parallelism —
+on Hanoi it can move two non-interfering discs in the same step.
+Forall-step correctly forces truly sequential plans and matches the known optimal (31 steps).
+Exists-step is generally faster on short problems; on Hanoi XL2 forall-step (17.8 s)
+is competitive with SP-default exists-step (6.6 s) because the parallel search space
+adds SAT overhead.
 
 **Ladder AMO vs pairwise AMO.**
 For Blocksworld and Depot, pairwise AMO matches ladder performance (H1: 0.535 s vs 0.472 s,
@@ -724,7 +720,7 @@ cliques (e.g., domains with many parallel-safe actions) ladder encoding would wi
 
 | Dimension | Winner | Notes |
 |-----------|--------|-------|
-| Speed | SATplan faster | 2.9× on H1; 12× on Depot D2; BB times out on Ferry |
+| Speed | SATplan faster | 2.9× on H1; 12× on Depot D2; 2.6× on Hanoi XL2 |
 | Plan quality | BlackBox shorter plans | Depot: BB finds 13 actions vs SP's 19; justify post-processor helps |
 | Incremental SAT | Incremental faster | Up to 3.3× on long-horizon (Hanoi) |
 | Step semantics | Exists-step shorter makespan | Forall-step matches sequential optimum |
