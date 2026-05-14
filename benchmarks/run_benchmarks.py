@@ -26,15 +26,19 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 BB_DIR  = os.path.join(REPO, 'Blackbox', 'blackbox_python')
 SAT_DIR = os.path.join(REPO, 'satplan_python')
 BM_DIR  = os.path.join(REPO, 'benchmarks')
-DOMAIN  = os.path.join(BM_DIR, 'blocks_domain.pddl')
 
+# (id, domain_file, problem_file, difficulty)
 PROBLEMS = [
-    ('S1', 'blocks_s1.pddl', 'small'),
-    ('S2', 'blocks_s2.pddl', 'small'),
-    ('M1', 'blocks_m1.pddl', 'medium'),
-    ('M2', 'blocks_m2.pddl', 'medium'),
-    ('H1', 'blocks_h1.pddl', 'hard'),
-    ('H2', 'blocks_h2.pddl', 'hard'),
+    ('S1',   'blocks_domain.pddl',  'blocks_s1.pddl',   'small'),
+    ('S2',   'blocks_domain.pddl',  'blocks_s2.pddl',   'small'),
+    ('M1',   'blocks_domain.pddl',  'blocks_m1.pddl',   'medium'),
+    ('M2',   'blocks_domain.pddl',  'blocks_m2.pddl',   'medium'),
+    ('H1',   'blocks_domain.pddl',  'blocks_h1.pddl',   'hard'),
+    ('H2',   'blocks_domain.pddl',  'blocks_h2.pddl',   'hard'),
+    ('XL1',  'ferry_domain.pddl',   'ferry_xl1.pddl',   'xl'),
+    ('XL2',  'hanoi_domain.pddl',   'hanoi_xl1.pddl',   'xl'),
+    ('D1',   'depot_domain.pddl',   'depot_p1.pddl',    'depot'),
+    ('D2',   'depot_domain.pddl',   'depot_p2.pddl',    'depot'),
 ]
 
 # Each config: (label, planner, extra_flags)
@@ -54,7 +58,7 @@ CONFIGS = [
 ]
 
 
-def run_one(planner: str, flags: list[str], problem_file: str,
+def run_one(planner: str, flags: list[str], domain_file: str, problem_file: str,
             timeout: int) -> dict:
     """
     Run one planner configuration on one problem.
@@ -63,13 +67,13 @@ def run_one(planner: str, flags: list[str], problem_file: str,
     if planner == 'blackbox':
         cmd = [
             sys.executable, os.path.join(BB_DIR, 'blackbox.py'),
-            '-o', DOMAIN, '-f', problem_file,
+            '-o', domain_file, '-f', problem_file,
         ] + flags
         cwd = BB_DIR
     else:
         cmd = [
             sys.executable, os.path.join(SAT_DIR, 'satplan.py'),
-            '-o', DOMAIN, '-f', problem_file,
+            '-o', domain_file, '-f', problem_file,
         ] + flags
         cwd = SAT_DIR
 
@@ -137,17 +141,21 @@ def main():
           f"{'Time(s)':<9} {'PlanLen'}")
     print('-' * 65)
 
-    for prob_id, prob_file, diff in PROBLEMS:
+    for prob_id, domain_file, prob_file, diff in PROBLEMS:
+        domain_path  = os.path.join(BM_DIR, domain_file)
         problem_path = os.path.join(BM_DIR, prob_file)
+        # Give XL and depot problems a longer timeout
+        to = args.timeout * 2 if diff in ('xl', 'depot') else args.timeout
         for cfg_label, planner, extra_flags in CONFIGS:
-            r = run_one(planner, extra_flags, problem_path, args.timeout)
+            r = run_one(planner, extra_flags, domain_path, problem_path, to)
             elapsed = f'{r["elapsed"]:.3f}'
             plan_len = r['plan_len'] if r['plan_len'] >= 0 else '--'
-            print(f'{cfg_label:<22} {prob_id:<6} {diff:<7} {r["status"]:<9} '
+            status = r['status']
+            print(f'{cfg_label:<22} {prob_id:<6} {diff:<7} {status:<9} '
                   f'{elapsed:<9} {plan_len}')
             results.append([
                 cfg_label, planner, prob_id, diff,
-                r['status'], round(r['elapsed'], 4), r['plan_len'],
+                status, round(r['elapsed'], 4), r['plan_len'],
             ])
 
     print()

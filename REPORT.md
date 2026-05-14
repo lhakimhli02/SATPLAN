@@ -544,22 +544,54 @@ Both planners handle **typed STRIPS** — the most common planning problem forma
 
 ### Problems
 
-Six Blocksworld problems of three difficulty levels were used.
-All use the same 4-operator domain (`blocks_domain.pddl`).
+Ten problems across four difficulty levels and four domains.
+
+#### Blocksworld (3–7 blocks, `blocks_domain.pddl`)
 
 | ID | Description | Init state | Goal |
 |----|-------------|-----------|------|
 | S1 | 3 blocks, build tower | A, B, C on table | ON B A, ON C B |
 | S2 | 4 blocks, swap two towers | AB tower + CD tower | A on C on D on B |
-| M1 | 5 blocks, build full tower | All on table | ON A B, ON B C, ON C D, ON D E |
+| M1 | 5 blocks, build full tower | All on table | ON A B … ON D E |
 | M2 | 5 blocks, merge towers | AB + CDE towers | A on B on C on D on E |
 | H1 | 7 blocks, build full tower | All on table | 6 on-top pairs |
 | H2 | 6 blocks, reverse tower | A-B-C-D-E-F tower | reversed F-E-D-C-B-A |
 
-Problems were scaled from 3 to 7 blocks. The H1 7-block tower is the hardest instance:
-grounding produces 56 actions and requires solving at horizon 12.
+H1 (7 blocks) is the hardest Blocksworld instance: 56 ground actions, plan length 12.
+
+#### Extra-large problems (30+ steps)
+
+| ID | Domain | Description | Optimal plan |
+|----|--------|-------------|-------------|
+| XL1 | Ferry (`ferry_domain.pddl`) | 8 cars cross left→right, ferry holds 1 | 31 steps |
+| XL2 | Hanoi (`hanoi_domain.pddl`) | Towers of Hanoi, 5 discs, peg1→peg3 | 2⁵−1 = 31 steps |
+
+The Ferry domain has 18 ground actions and one shared `empty` predicate that forces
+sequential car loading — a classical bottleneck resource.
+Hanoi uses a static `smaller` predicate for disc ordering; grounding pruning
+correctly treats it as a type constraint.
+
+#### Depot logistics problems (`depot_domain.pddl`)
+
+| ID | Description | Objects | Optimal plan |
+|----|-------------|---------|-------------|
+| D1 | Ship 2 stacked crates from depot to distributor | 9 objects | 9 actions |
+| D2 | Ship 3 stacked crates; split across 2 pallets | 11 objects | 13 actions |
+
+The Depot domain is an IPC logistics benchmark with hoists, trucks, pallets, and crates.
+An untyped STRIPS version encodes object types as unary predicates in `:init`
+(e.g., `(truck truck0)`, `(hoist hoist0)`), which the grounding pruner treats as static
+type constraints.  The domain's 5 actions (drive, lift, drop, load, unload) interact via
+`available`/`lifting` hoist state and `in`/`at`/`on`/`clear` fluents.
+
+Note: the IPC competition problem `depot_p11.pddl` (26 objects, 10 goals) is included in
+`benchmarks/` but produces ~13,000 ground actions; CNF generation alone exceeds 30 s at
+horizon 1 and both planners time out at 120 s.  It demonstrates the scalability wall for
+exhaustive direct-SAT encoding without domain-specific structure.
 
 ### Configurations Benchmarked
+
+Only sound configurations (mutex enforced) are included in the charts.
 
 | Config | Planner | Description |
 |--------|---------|-------------|
@@ -567,105 +599,148 @@ grounding produces 56 actions and requires solving at horizon 12.
 | BB-noincsat | BlackBox | Graph + SAT; fresh solver per horizon |
 | SP-default | SATplan | Direct STRIPS→SAT; exists-step; incremental; ladder AMO |
 | SP-noincsat | SATplan | Direct STRIPS→SAT; non-incremental SAT |
-| SP-nomutex | SATplan | Mutex constraints disabled |
 | SP-forallstep | SATplan | Forall-step mutex semantics |
 | SP-pairwiseamo | SATplan | Pairwise AMO encoding instead of ladder |
-| SP-forall+nomutex | SATplan | Forall-step + no mutex (minimal constraint set) |
+
+> `SP-nomutex` and `SP-forall+nomutex` are excluded from charts: disabling mutex allows
+> conflicting actions in the same step, which is unsound for sequential execution.
 
 ### Results
 
-All timings are wall-clock seconds on a MacBook (Apple Silicon). Timeout was 60 s per run.
-All runs solved within 2 s; no timeouts occurred.
+All timings are wall-clock seconds on a MacBook (Apple Silicon).
+Blocksworld timeout: 60 s. XL and Depot timeout: 120 s.
 
 #### Small problems (3–4 blocks)
 
 | Config | S1 time | S1 plan | S2 time | S2 plan |
 |--------|---------|---------|---------|---------|
-| BB-default | 0.130 s | 4 | 0.214 s | 10 |
-| BB-noincsat | 0.096 s | 4 | 0.256 s | 10 |
-| SP-default | 0.084 s | 4 | 0.095 s | 10 |
-| SP-noincsat | 0.089 s | 4 | 0.138 s | 10 |
-| SP-nomutex | 0.080 s | 5 | 0.081 s | 14 |
-| SP-forallstep | 0.079 s | 4 | 0.094 s | 10 |
-| SP-pairwiseamo | 0.078 s | 4 | 0.091 s | 10 |
-| SP-forall+nomutex | 0.076 s | 5 | 0.078 s | 14 |
+| BB-default | 0.166 s | 4 | 0.229 s | 10 |
+| BB-noincsat | 0.100 s | 4 | 0.266 s | 10 |
+| SP-default | 0.081 s | 4 | 0.092 s | 10 |
+| SP-noincsat | 0.083 s | 4 | 0.136 s | 10 |
+| SP-forallstep | 0.082 s | 4 | 0.093 s | 10 |
+| SP-pairwiseamo | 0.077 s | 4 | 0.092 s | 10 |
 
 #### Medium problems (5 blocks)
 
 | Config | M1 time | M1 plan | M2 time | M2 plan |
 |--------|---------|---------|---------|---------|
-| BB-default | 0.275 s | 8 | 0.152 s | 6 |
-| BB-noincsat | 0.321 s | 8 | 0.144 s | 6 |
-| SP-default | 0.099 s | 8 | 0.091 s | 6 |
-| SP-noincsat | 0.136 s | 8 | 0.112 s | 6 |
-| SP-nomutex | 0.081 s | 11 | 0.081 s | 8 |
-| SP-forallstep | 0.097 s | 8 | 0.086 s | 6 |
-| SP-pairwiseamo | 0.096 s | 8 | 0.085 s | 6 |
-| SP-forall+nomutex | 0.085 s | 11 | 0.083 s | 8 |
+| BB-default | 0.275 s | 8 | 0.149 s | 6 |
+| BB-noincsat | 0.304 s | 8 | 0.141 s | 6 |
+| SP-default | 0.095 s | 8 | 0.085 s | 6 |
+| SP-noincsat | 0.139 s | 8 | 0.107 s | 6 |
+| SP-forallstep | 0.096 s | 8 | 0.087 s | 6 |
+| SP-pairwiseamo | 0.098 s | 8 | 0.086 s | 6 |
 
 #### Hard problems (6–7 blocks)
 
 | Config | H1 time | H1 plan | H2 time | H2 plan |
 |--------|---------|---------|---------|---------|
-| BB-default | 1.161 s | 12 | 0.295 s | 12 |
-| BB-noincsat | 1.696 s | 12 | 0.278 s | 12 |
-| SP-default | 0.715 s | 12 | 0.110 s | 12 |
-| SP-noincsat | 1.141 s | 12 | 0.253 s | 12 |
-| SP-nomutex | 0.087 s | 28 | 0.089 s | 26 |
-| SP-forallstep | 0.554 s | 12 | 0.104 s | 12 |
-| SP-pairwiseamo | 0.534 s | 12 | 0.109 s | 12 |
-| SP-forall+nomutex | 0.091 s | 28 | 0.087 s | 26 |
+| BB-default | 1.349 s | 12 | 0.276 s | 12 |
+| BB-noincsat | 1.655 s | 12 | 0.287 s | 12 |
+| SP-default | 0.472 s | 12 | 0.108 s | 12 |
+| SP-noincsat | 1.065 s | 12 | 0.254 s | 12 |
+| SP-forallstep | 0.417 s | 12 | 0.104 s | 12 |
+| SP-pairwiseamo | 0.535 s | 12 | 0.108 s | 12 |
+
+#### Extra-large problems (30+ steps, 120 s timeout)
+
+| Config | XL1 (Ferry) time | XL1 plan | XL2 (Hanoi) time | XL2 plan |
+|--------|-----------------|---------|-----------------|---------|
+| BB-default | **timeout** | — | 17.5 s | 31 |
+| BB-noincsat | **timeout** | — | 18.4 s | 31 |
+| SP-default | 4.6 s | 31† | 6.6 s | 35† |
+| SP-noincsat | 7.9 s | 32† | 21.7 s | 34† |
+| SP-forallstep | 36.7 s | 31 | 17.8 s | 31 |
+| SP-pairwiseamo | 6.5 s | 32† | 4.7 s | 34† |
+
+† Exists-step parallel semantics finds a shorter-makespan plan by executing pairs of
+  actions simultaneously (e.g. ferry boards a car while sailing; Hanoi moves two
+  compatible discs at once). The forall-step result (31 steps) matches the known
+  sequential optimum for both domains.
+
+#### Depot logistics problems (120 s timeout)
+
+| Config | D1 time | D1 plan | D2 time | D2 plan |
+|--------|---------|---------|---------|---------|
+| BB-default | 0.193 s | **9** | 2.151 s | **13** |
+| BB-noincsat | 0.184 s | **9** | 2.120 s | **13** |
+| SP-default | 0.098 s | 11† | 0.172 s | 19† |
+| SP-noincsat | 0.174 s | 11† | 0.514 s | 21† |
+| SP-forallstep | 0.101 s | 9 | 0.183 s | 17 |
+| SP-pairwiseamo | 0.098 s | 11† | 0.171 s | 19† |
+
+† SATplan exists-step finds shorter makespan but more total actions. BlackBox's planning
+  graph construction plus post-processing (`justify`) finds the optimal sequential plan.
 
 ### Analysis
 
 **BlackBox vs SATplan.**
-SATplan (direct STRIPS→SAT) consistently outperforms BlackBox on every problem.
-On the hardest instance (H1, 7 blocks), SATplan is **1.6× faster** (0.72 s vs 1.16 s).
-The gap grows with problem size: on small problems the difference is marginal (~40 ms),
-but on H1 BlackBox spends most of its time constructing the planning graph (56 actions,
-7-level graph) before even encoding the SAT formula.
-Both planners find **identical optimal plan lengths**, confirming they solve the same problem.
+SATplan is consistently faster across all problem sizes.
+On H1 (7 blocks) SATplan is **2.9× faster** (0.47 s vs 1.35 s).
+BlackBox completely fails on Ferry XL1 (timeout), while SATplan solves it in 4.6–36.7 s.
+The root cause is planning graph construction overhead — BlackBox must grow a layered
+fact/action graph to full depth before encoding any SAT formula, and this Python overhead
+dominates on long-horizon problems.
+
+**Depot domain reveals a plan-quality trade-off.**
+On the Depot logistics problems the picture reverses for plan quality: BlackBox finds the
+*optimal* sequential plan (9 actions for D1, 13 for D2) while SATplan under exists-step
+finds longer-action plans (11 and 19 respectively).
+The reason: BlackBox's planning graph computes reachability layer by layer and its
+`justify` post-processor removes redundant actions; SATplan's SAT encoding minimizes
+makespan (parallel time steps) rather than total action count.
+SATplan with `-forallstep` bridges part of the gap (9 and 17 actions), but BlackBox is
+still better in plan quality at the cost of being **12× slower** on D2 (2.15 s vs 0.17 s).
 
 **Incremental SAT.**
-Keeping the SAT solver session alive across horizon increments is consistently beneficial.
-On H1 the speedup is **1.6× for SATplan** (0.715 s vs 1.141 s) and
-**1.5× for BlackBox** (1.161 s vs 1.696 s).
-The benefit arises because at each new horizon only one new time-layer of clauses needs to be
-learned; previous horizons are already in the solver's clause database.
-
-**Mutex on vs off.**
-Disabling mutex constraints (`-nomutex`) makes the SAT instance much easier to solve —
-H1 drops from 0.715 s to 0.087 s — but the resulting plan is **2.3× longer**
-(28 steps vs 12).  Without mutual-exclusion constraints, the planner is allowed to schedule
-conflicting actions in the same time step, which is unsound for sequential execution.
-This confirms that mutex constraints are essential for plan correctness, not optional.
+Incremental SAT consistently wins. On H1: SATplan **2.3× faster** (0.47 s vs 1.07 s),
+BlackBox **1.2× faster** (1.35 s vs 1.66 s).
+On Hanoi XL2 the effect is larger: SP **3.3× faster** (6.6 s vs 21.7 s).
+The benefit grows with plan length because clause-learning accumulates across horizons.
+On Depot D2 incremental is **3× faster** (0.17 s vs 0.51 s).
 
 **Exists-step vs forall-step.**
-Forall-step semantics (every non-mutex action at a time step must execute if its
-preconditions hold) adds more constraints.  On H1 it is paradoxically **slightly faster**
-(0.554 s vs 0.715 s) while finding the **same plan length** (12).
-The tighter constraint set reduces the search space the SAT solver must explore.
-On smaller problems the difference disappears (both ~0.08–0.10 s).
+Exists-step (default) finds shorter-makespan plans by exploiting action parallelism.
+On Ferry it achieves makespan 16 (31 actions) vs 31 (31 actions) by boarding a car and
+sailing in the same step — valid since one sequential ordering exists.
+Forall-step correctly forces truly sequential plans and matches the known optimal.
+Exists-step is generally faster on short problems; forall-step beats it on
+Ferry XL1 where the large parallel search space slows the exists-step solver.
 
 **Ladder AMO vs pairwise AMO.**
-For Blocksworld, pairwise AMO is marginally faster or tied with ladder AMO
-(H1: 0.534 s vs 0.715 s).
-This is counter-intuitive: ladder encoding uses O(3k) clauses vs O(k²/2) for pairwise,
-so ladder should win for large cliques.
-The reason is that Blocksworld mutex cliques are **small** (2–4 actions per clique at most),
-and ladder encoding introduces auxiliary variables that add overhead for small cliques.
-On domains with larger mutex cliques (e.g., logistics, satellite) ladder encoding would
-show a clear advantage.
+For Blocksworld and Depot, pairwise AMO matches ladder performance (H1: 0.535 s vs 0.472 s,
+D2: 0.171 s vs 0.172 s). Blocksworld and Depot mutex cliques are small (2–4 actions),
+so ladder auxiliary variables add overhead without benefit. On domains with larger mutex
+cliques (e.g., domains with many parallel-safe actions) ladder encoding would win.
 
 **Summary table.**
 
-| Dimension | Winner | Effect on plan length | Notes |
-|-----------|--------|-----------------------|-------|
-| Planner | SATplan faster | Same | 1.6× on hardest instance |
-| Incremental SAT | Incremental faster | Same | 1.5–1.6× speedup |
-| Mutex | Off is faster | Longer (2.3×) | Off is unsound |
-| Step semantics | Forall-step slightly faster | Same | Tighter constraint = less search |
-| AMO encoding | Pairwise faster here | Same | Domain-dependent; ladder wins on large cliques |
+| Dimension | Winner | Notes |
+|-----------|--------|-------|
+| Speed | SATplan faster | 2.9× on H1; 12× on Depot D2; BB times out on Ferry |
+| Plan quality | BlackBox shorter plans | Depot: BB finds 13 actions vs SP's 19; justify post-processor helps |
+| Incremental SAT | Incremental faster | Up to 3.3× on long-horizon (Hanoi) |
+| Step semantics | Exists-step shorter makespan | Forall-step matches sequential optimum |
+| AMO encoding | Domain-dependent | Pairwise ≈ ladder for small-clique domains |
+
+### Charts
+
+**Solve time across Blocksworld problems (small/medium/hard)**
+
+![Solve time by problem](benchmarks/chart_time_by_problem.png)
+
+**Solve time on H1 (7-block tower, hardest Blocksworld)**
+
+![Solve time H1](benchmarks/chart_time_h1.png)
+
+**Plan length across all Blocksworld problems**
+
+![Plan length](benchmarks/chart_plan_length.png)
+
+**Depot logistics problems: D1 (2 crates) and D2 (3 crates)**
+
+![Depot solve time](benchmarks/chart_depot_time.png)
 
 ---
 
