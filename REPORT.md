@@ -682,6 +682,12 @@ BlackBox completely fails on Ferry XL1 (timeout), while SATplan solves it in 4.6
 The root cause is planning graph construction overhead — BlackBox must grow a layered
 fact/action graph to full depth before encoding any SAT formula, and this Python overhead
 dominates on long-horizon problems.
+A C++ implementation of BlackBox (as in the original Kautz & Selman 1998 release) would
+eliminate this interpreter overhead almost entirely; on the IPC benchmark suite the
+original C BlackBox matched or outperformed contemporary SAT-based planners.
+It is therefore likely that a compiled BlackBox would be **faster than SATplan** on
+logistics-style domains, where the planning graph's reachability pruning produces a
+significantly more compact CNF than direct STRIPS encoding.
 
 **Depot domain reveals a plan-quality trade-off.**
 On the Depot logistics problems the picture reverses for plan quality: BlackBox finds the
