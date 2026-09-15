@@ -125,13 +125,25 @@ def main() -> None:
     st.title("SATPLAN Problem Browser")
     _init_state()
 
-    # ── Domain + planner selectors ────────────────────────────────────────
-    col_domain, col_planner = st.columns(2)
+    SAT_SOLVERS = {
+        "CaDiCaL (default)": "cadical",
+        "Glucose":           "glucose",
+        "MapleChrono":       "maple",
+        "MiniSat":           "minisat",
+        "Kissat":            "kissat",
+        "WalkSAT":           "walksat",
+    }
+
+    # ── Domain + planner + solver selectors ───────────────────────────────
+    col_domain, col_planner, col_solver = st.columns(3)
     with col_domain:
         new_domain = st.selectbox("Domain", ALL_DOMAINS,
                                   index=ALL_DOMAINS.index(st.session_state.domain))
     with col_planner:
         planner_name = st.selectbox("Planner", list(PLANNERS.keys()))
+    with col_solver:
+        solver_label = st.selectbox("SAT Solver", list(SAT_SOLVERS.keys()))
+        solver_name  = SAT_SOLVERS[solver_label]
 
     if new_domain != st.session_state.domain:
         st.session_state.domain      = new_domain
@@ -168,7 +180,8 @@ def main() -> None:
 
     if run_pressed:
         problem_path = _write_problem(domain, params)
-        cmd = [sys.executable, PLANNERS[planner_name], "-o", domain_path, "-f", problem_path]
+        cmd = [sys.executable, PLANNERS[planner_name], "-o", domain_path, "-f", problem_path,
+               "-solver", solver_name]
         if planner_name == "SATplan":
             cmd += ["-noopt"]
         try:
