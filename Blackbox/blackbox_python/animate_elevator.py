@@ -30,7 +30,7 @@ Options
 """
 
 from __future__ import annotations
-import sys, os, argparse, itertools
+import sys, os, argparse
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -40,13 +40,12 @@ from matplotlib.gridspec import GridSpec
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from graphplan import PlanningGraph
-from planner import Planner
-from data_structures import CONNECTOR, NOOP, SolverSpec, Graphplan_Solver, Anysat, Sat
+from data_structures import CONNECTOR, NOOP
 from visualize_graphplan import C_BG, render_layer
 
 
 # ── Layout constants ──────────────────────────────────────────────────────────
-N_SUB       = 12    # sub-frames per execution step
+N_SUB       = 8     # sub-frames per execution step
 SEARCH_MS   = 500   # ms each search-phase frame is displayed
 FRAME_MS    = 50    # ms per rendered frame → 20 fps
 
@@ -401,55 +400,40 @@ def _lift_subframes(
     return result
 
 
-# ── Partial plan search ───────────────────────────────────────────────────────
+# ── Satplan-based plan extraction ────────────────────────────────────────────
 
-def find_best_partial_plan(
-        graph:     PlanningGraph,
-        planner:   Planner,
-        all_goals: list,
-        h:         int,
-        initial:   ElevatorState,
-        max_calls: int = 150,
-) -> tuple[list[tuple[ElevatorState, list[str]]], list]:
-    original_goals = list(graph.the_goals)
-    best_states: list[tuple[ElevatorState, list[str]]] = [(initial, [])]
-    best_goals:  list = []
-
-    if h < len(graph.fact_table):
-        reachable_idx = [
-            i for i, g in enumerate(all_goals)
-            if graph.fact_table[h].lookup(CONNECTOR.join(g)) is not None
-        ]
-    else:
-        reachable_idx = []
-
-    if not reachable_idx:
-        graph.the_goals = original_goals
-        return best_states, best_goals
-
-    calls = 0
-    for size in range(len(reachable_idx), 0, -1):
-        found = False
-        for indices in itertools.combinations(reachable_idx, size):
-            graph.the_goals = [all_goals[i] for i in indices]
-            if not graph.can_stop(h):
-                continue
-            if calls >= max_calls:
-                break
-            calls += 1
-            if planner.do_plan(h) == Sat:
-                best_states = _extract_plan_states(graph, h, initial)
-                best_goals  = list(graph.the_goals)
-                found = True
-                break
-        if found or calls >= max_calls:
-            break
-
-    graph.the_goals = original_goals
-    return best_states, best_goals
+_SATPLAN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', '..', 'satplan_python', 'satplan.py')
 
 
-# ── Planning search ───────────────────────────────────────────────────────────
+def _get_plan_steps(domain_file: str, problem_file: str, timeout: int = 180):
+    import re, subprocess as _sp
+    try:
+        r = _sp.run([sys.executable, _SATPLAN, '-o', domain_file, '-f', problem_file, '-noopt'],
+                    capture_output=True, text=True, timeout=timeout)
+    except _sp.TimeoutExpired:
+        return None
+    steps: dict[int, list[str]] = {}
+    for line in r.stdout.splitlines():
+        m = re.match(r'\s*(\d+):\s*\((\S+)(.*?)\)\s*$', line.strip())
+        if not m:
+            continue
+        t, name = int(m.group(1)), m.group(2).lower()
+        args = m.group(3).strip().lower().split()
+        steps.setdefault(t, []).append(CONNECTOR.join([name] + args))
+    return [(t, steps[t]) for t in sorted(steps)] if steps else None
+
+
+def _states_from_steps(initial: ElevatorState,
+                       plan_steps: list) -> list[tuple[ElevatorState, list[str]]]:
+    states = [(initial.copy(), [])]
+    cur = initial.copy()
+    for _t, acts in plan_steps:
+        for a in acts:
+            cur = _apply_action(cur, a)
+        states.append((cur.copy(), acts))
+    return states
+
 
 def run_full_search(domain_file: str, problem_file: str,
                     max_steps: int, debug: int):
@@ -457,32 +441,26 @@ def run_full_search(domain_file: str, problem_file: str,
     graph.debug_flag = debug
     graph.load(domain_file, problem_file)
     graph.process_data()
-    graph.create_graph(max_steps, auto_stop=False)
 
     lifts, passengers = _parse_objects(graph)
     floor_order       = _parse_floor_order(graph)
     initial           = _parse_initial_state(graph)
-    all_goals         = list(graph.the_goals)
+    graph.create_graph(max_steps, auto_stop=False)
+    all_goals = list(graph.the_goals)
 
-    planner = Planner(
-        graph=graph,
-        solver_specs=[SolverSpec(solver_name='cadical',
-                                 solver_type=Anysat)],
-        debug=debug, noopt=True, do_justify=False,
-    )
+    plan_steps = _get_plan_steps(domain_file, problem_file)
+    if plan_steps is None:
+        return (graph, -1, [(1, [(initial.copy(), [])], [], False)],
+                initial, lifts, passengers, floor_order, all_goals)
 
-    horizon_data = []
-    plan_horizon = -1
-    for h in range(1, max_steps + 1):
-        if h >= len(graph.fact_table):
-            break
-        states, achieved = find_best_partial_plan(
-            graph, planner, all_goals, h, initial)
-        is_full = len(achieved) == len(all_goals)
-        horizon_data.append((h, states, achieved, is_full))
-        if is_full:
-            plan_horizon = h
-            break
+    plan_states  = _states_from_steps(initial, plan_steps)
+    plan_horizon = len(plan_steps)
+
+    n_search  = min(3, plan_horizon - 1)
+    step_size = max(1, plan_horizon // (n_search + 1))
+    search_hs = list(range(step_size, plan_horizon, step_size))[:n_search]
+    horizon_data = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
+    horizon_data.append((plan_horizon, plan_states, all_goals, True))
 
     return (graph, plan_horizon, horizon_data,
             initial, lifts, passengers, floor_order, all_goals)
@@ -520,8 +498,9 @@ def build_animation(domain_file: str, problem_file: str,
                 for lift in lifts}
 
     # ── Build frame list ──────────────────────────────────────────────────
+    frame_ms        = max(20, interval // N_SUB)
     frames: list[dict] = []
-    n_search_frames = max(1, SEARCH_MS // FRAME_MS)
+    n_search_frames = max(1, SEARCH_MS // frame_ms)
 
     for h, plan_states, achieved, is_full in horizon_data:
         graph_layer = min(h - 1, num_layers - 1)
@@ -595,11 +574,11 @@ def build_animation(domain_file: str, problem_file: str,
                     for _ in range(N_SUB):
                         frames.append(frame)
 
-    print(f'Animation: {len(frames)} frames at {FRAME_MS} ms each '
-          f'({len(frames) * FRAME_MS / 1000:.1f}s total, loops)')
+    print(f'Animation: {len(frames)} frames at {frame_ms} ms each '
+          f'({len(frames) * frame_ms / 1000:.1f}s total, loops)')
 
     # ── Figure setup ──────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(20, 9))
+    fig = plt.figure(figsize=(16, 6))
     fig.patch.set_facecolor(C_BG)
     gs = GridSpec(1, 2, figure=fig,
                   left=0.01, right=0.99, top=0.91, bottom=0.06,
@@ -614,14 +593,17 @@ def build_animation(domain_file: str, problem_file: str,
             return f'Plan found at horizon {h}  —  Executing step {s} / {t}'
         return f'Horizon {h}  —  Searching…  {fr["title_extra"]}'
 
+    _last_layer = [-1]
+
     def update(frame_idx: int):
         fr = frames[frame_idx]
         t  = fr['graph_layer']
         reachable_g = fr.get('reachable_goals', goal_names_raw)
-        if t < len(graph.op_table):
+        if t < len(graph.op_table) and t != _last_layer[0]:
             render_layer(ax_graph, graph, t, reachable_g,
                          show_noop=show_noop,
                          max_facts=max_facts, max_actions=max_actions)
+            _last_layer[0] = t
         render_elevator(
             ax_elev,
             state            = fr['state'],
@@ -643,7 +625,7 @@ def build_animation(domain_file: str, problem_file: str,
     ani = manim.FuncAnimation(
         fig, update,
         frames=len(frames),
-        interval=FRAME_MS,
+        interval=frame_ms,
         repeat=True, blit=False,
     )
     update(0)
@@ -686,10 +668,10 @@ def main():
     if args.save:
         print(f'Saving to {args.save} …')
         ext = os.path.splitext(args.save)[1].lower()
-        fps = max(1, 1000 // FRAME_MS)
+        fps = max(1, N_SUB * 1000 // max(20, args.interval))
         writer = (manim.PillowWriter(fps=fps) if ext == '.gif'
                   else manim.FFMpegWriter(fps=fps, bitrate=1800))
-        ani.save(args.save, writer=writer, dpi=120)
+        ani.save(args.save, writer=writer, dpi=72)
         print('Saved.')
         plt.close('all')
     else:

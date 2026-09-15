@@ -75,7 +75,7 @@ def _goals_first(graph, t: int, goal_names: set):
 
 
 # ── Layout constants ──────────────────────────────────────────────────────────
-N_SUB        = 12    # sub-frames per EXECUTION step (20 fps × ~0.6s per step)
+N_SUB        = 8     # sub-frames per EXECUTION step (20 fps × ~0.4s per step)
 SEARCH_MS    = 500  # how long each search-phase frame is shown (milliseconds)
 FRAME_MS     = 50   # ms per rendered frame → 20 fps
 ARM_Y    = 0.72   # y-centre of held block (arm height)
@@ -496,50 +496,66 @@ def find_best_partial_plan(
 
 # ── Search ────────────────────────────────────────────────────────────────────
 
+_SATPLAN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', '..', 'satplan_python', 'satplan.py')
+
+
+def _get_plan_steps(domain_file: str, problem_file: str, timeout: int = 180):
+    import re, subprocess as _sp
+    try:
+        r = _sp.run([sys.executable, _SATPLAN, '-o', domain_file, '-f', problem_file, '-noopt'],
+                    capture_output=True, text=True, timeout=timeout)
+    except _sp.TimeoutExpired:
+        return None
+    steps: dict[int, list[str]] = {}
+    for line in r.stdout.splitlines():
+        m = re.match(r'\s*(\d+):\s*\((\S+)(.*?)\)\s*$', line.strip())
+        if not m:
+            continue
+        t, name = int(m.group(1)), m.group(2).lower()
+        args = m.group(3).strip().lower().split()
+        steps.setdefault(t, []).append(CONNECTOR.join([name] + args))
+    return [(t, steps[t]) for t in sorted(steps)] if steps else None
+
+
+def _states_from_steps(initial, plan_steps):
+    states = [(initial.copy(), [])]
+    cur    = initial.copy()
+    for _t, acts in plan_steps:
+        for a in acts:
+            cur = _apply_action(cur, a)
+        states.append((cur.copy(), acts))
+    return states
+
+
 def run_full_search(domain_file: str, problem_file: str,
                     max_steps: int, debug: int):
-    """Build graph and collect per-horizon best plans.
-
-    Returns (graph, plan_horizon, horizon_data, initial, all_blocks,
-             initial_slots, all_goals).
-    horizon_data: list of (h, plan_states, achieved_goals, is_full).
-    """
     graph = PlanningGraph()
     graph.debug_flag = debug
     graph.load(domain_file, problem_file)
     graph.process_data()
 
-    initial = _parse_initial_state(graph)
+    initial    = _parse_initial_state(graph)
     all_blocks = sorted({b.lower() for fact in graph.initial_facts
                          for b in fact[1:]
                          if fact[0].lower() in ('on', 'ontable', 'clear', 'holding')})
     initial_slots = {b: i for i, b in enumerate(all_blocks)}
-
-    # Build entire graph first so all layers exist for visualisation
     graph.create_graph(max_steps, auto_stop=False)
-
     all_goals = list(graph.the_goals)
-    planner   = Planner(
-        graph=graph,
-        solver_specs=[SolverSpec(solver_name='graphplan',
-                                 solver_type=Graphplan_Solver)],
-        debug=debug, noopt=True, do_justify=False,
-    )
 
-    horizon_data = []
-    plan_horizon = -1
+    plan_steps = _get_plan_steps(domain_file, problem_file)
+    if plan_steps is None:
+        return (graph, -1, [(1, [(initial.copy(), [])], [], False)],
+                initial, all_blocks, initial_slots, all_goals)
 
-    for h in range(1, max_steps + 1):
-        if h >= len(graph.fact_table):
-            break
-        states, achieved = find_best_partial_plan(
-            graph, planner, all_goals, h, initial, initial_slots, all_blocks
-        )
-        is_full = (len(achieved) == len(all_goals))
-        horizon_data.append((h, states, achieved, is_full))
-        if is_full:
-            plan_horizon = h
-            break
+    plan_states  = _states_from_steps(initial, plan_steps)
+    plan_horizon = len(plan_steps)
+
+    n_search  = min(3, plan_horizon - 1)
+    step_size = max(1, plan_horizon // (n_search + 1))
+    search_hs = list(range(step_size, plan_horizon, step_size))[:n_search]
+    horizon_data = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
+    horizon_data.append((plan_horizon, plan_states, all_goals, True))
 
     return graph, plan_horizon, horizon_data, initial, all_blocks, initial_slots, all_goals
 
@@ -597,8 +613,8 @@ def build_animation(domain_file: str, problem_file: str,
     frames: list[dict] = []
     # Fixed 20 fps (FRAME_MS ms per frame).
     # Search frames each last SEARCH_MS ms; execution uses N_SUB sub-frames.
-    sub_interval    = FRAME_MS
-    n_search_frames = max(1, SEARCH_MS // FRAME_MS)   # frames per search horizon
+    sub_interval    = max(20, interval // N_SUB)
+    n_search_frames = max(1, SEARCH_MS // sub_interval)
 
     for hi, (h, plan_states, achieved, is_full) in enumerate(horizon_data):
         graph_layer  = min(h - 1, num_layers - 1)
@@ -693,7 +709,7 @@ def build_animation(domain_file: str, problem_file: str,
           f'({len(frames) * sub_interval / 1000:.1f}s total, loops)')
 
     # ── Figure setup ──────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(22, 10))
+    fig = plt.figure(figsize=(16, 6))
     fig.patch.set_facecolor(C_BG)
     gs = GridSpec(1, 2, figure=fig,
                   left=0.01, right=0.99, top=0.91, bottom=0.06,
@@ -709,15 +725,18 @@ def build_animation(domain_file: str, problem_file: str,
             return f'Plan found at horizon {h}  —  Executing step {s} / {t}'
         return f'Horizon {h}  —  Searching…  {fr["title_extra"]}'
 
+    _last_layer = [-1]
+
     def update(frame_idx: int):
         fr = frames[frame_idx]
         t  = fr['graph_layer']
         reachable_g = fr.get('reachable_goals', goal_names_raw)
-        if t < len(graph.op_table):
+        if t < len(graph.op_table) and t != _last_layer[0]:
             with _goals_first(graph, t, reachable_g):
                 render_layer(ax_graph, graph, t, reachable_g,
                              show_noop=show_noop,
                              max_facts=max_facts, max_actions=max_actions)
+            _last_layer[0] = t
         render_blocksworld_positioned(
             ax_blocks,
             fr['positions'], fr['holding'],
@@ -778,10 +797,10 @@ def main():
     if args.save:
         print(f'Saving to {args.save} …')
         ext = os.path.splitext(args.save)[1].lower()
-        fps = max(1, 1000 // max(40, args.interval // N_SUB))
+        fps = max(1, N_SUB * 1000 // max(20, args.interval))
         writer = (manim.PillowWriter(fps=fps) if ext == '.gif'
                   else manim.FFMpegWriter(fps=fps, bitrate=1800))
-        ani.save(args.save, writer=writer, dpi=120)
+        ani.save(args.save, writer=writer, dpi=72)
         print('Saved.')
         plt.close('all')
     else:

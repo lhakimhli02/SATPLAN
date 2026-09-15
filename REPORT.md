@@ -73,8 +73,24 @@ This project assumes familiarity with basic AI concepts (search, propositional l
 **Installation (Python 3.10+):**
 
 ```bash
-pip install python-sat matplotlib
+pip install python-sat matplotlib streamlit
 ```
+
+**Run the interactive browser (recommended starting point):**
+
+Open a terminal at the repo root and run:
+
+```bash
+streamlit run ui/app.py
+```
+
+Streamlit will print a local URL (usually `http://localhost:8501`). Open it in your browser. From there you can:
+- Pick a planning domain (Blocksworld, Elevator, Ferry, Hanoi)
+- Adjust problem size with sliders (e.g. up to 15 passengers, 3 elevators, 10 floors)
+- Choose SATplan or BlackBox as the solver
+- Run the solver and see plan length + timing
+- Generate an animated GIF of the planning graph search and plan execution
+- Control animation speed (Slow / Normal / Fast / Very Fast)
 
 **Run BlackBox on the included Blocksworld example:**
 
