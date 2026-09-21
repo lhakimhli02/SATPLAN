@@ -76,7 +76,7 @@ def _goals_first(graph, t: int, goal_names: set):
 
 # ── Layout constants ──────────────────────────────────────────────────────────
 N_SUB        = 8     # sub-frames per EXECUTION step (20 fps × ~0.4s per step)
-SEARCH_MS    = 500  # how long each search-phase frame is shown (milliseconds)
+SEARCH_MS    = 1000  # how long each search-phase frame is shown (milliseconds)
 FRAME_MS     = 50   # ms per rendered frame → 20 fps
 ARM_Y    = 0.72   # y-centre of held block (arm height)
 ARM_EXT  = 0.13   # arm line length above held block
@@ -718,11 +718,13 @@ def build_animation(domain_file: str, problem_file: str,
 
     # ── Figure setup ──────────────────────────────────────────────────────
     if show_graph:
-        fig = plt.figure(figsize=(16, 6))
+        # Stacked layout: planning graph on top, world-state animation below
+        # (given more vertical room, since it's the primary thing to watch).
+        fig = plt.figure(figsize=(11, 13))
         fig.patch.set_facecolor(C_BG)
-        gs = GridSpec(1, 2, figure=fig,
-                      left=0.01, right=0.99, top=0.91, bottom=0.06,
-                      wspace=0.04, width_ratios=[2, 1])
+        gs = GridSpec(2, 1, figure=fig,
+                      left=0.02, right=0.98, top=0.94, bottom=0.03,
+                      hspace=0.12, height_ratios=[0.65, 1.0])
         ax_graph  = fig.add_subplot(gs[0])
         ax_blocks = fig.add_subplot(gs[1])
     else:
