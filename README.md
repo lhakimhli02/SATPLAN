@@ -14,7 +14,7 @@ Three planning systems, plus a Streamlit web UI to try them all without touching
 You need **Python 3.10+**. Everything else installs with one command from the repo root:
 
 ```bash
-git clone https://github.com/lhakimhli02/Blackbox.git SATPLAN
+git clone https://github.com/lhakimhli02/SATPLAN.git
 cd SATPLAN
 
 python3 -m venv .venv
