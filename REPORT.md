@@ -201,7 +201,7 @@ These control which logical constraints are included in the CNF formula. More co
 | `elevator_problem.pddl` | 4 floors, 2 passengers, 1 elevator |
 | `elevator_problem2.pddl` | 6 floors, 3 passengers, 2 elevators |
 
-Additional benchmark suites under `Blackbox/BlackBox-master/Examples/`: Logistics (30 problems, STRIPS and typed), Bulldozer, Fridge, Tire-World, Woodshop, and large Blocksworld variants.
+The original C++ BlackBox (Kautz/Selman) shipped a larger example suite — Logistics (30 problems, STRIPS and typed), Bulldozer, Fridge, Tire-World, Woodshop, and large Blocksworld variants. That C++ source isn't part of this repo: this project is a full Python rewrite, and nothing here calls into it.
 
 ---
 

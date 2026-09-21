@@ -1,6 +1,6 @@
-# SATPLAN (Python)
+# Classical Planning Suite
 
-Three planning systems, plus a Streamlit web UI to try them all without touching the command line.
+Three classical planning systems, plus a Streamlit web UI to try them all without touching the command line.
 
 - **`blackbox_python/`** — BlackBox: PDDL → GraphPlan → CNF → SAT. Python rewrite of the original BlackBox planner by Henry Kautz and Bart Selman.
 - **`satplan_python/`** — SATplan: PDDL → STRIPS → CNF → SAT. Goes directly from grounded STRIPS actions to CNF, bypassing the planning graph.
