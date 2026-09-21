@@ -14,8 +14,8 @@ Three classical planning systems, plus a Streamlit web UI to try them all withou
 You need **Python 3.10+**. Everything else installs with one command from the repo root:
 
 ```bash
-git clone https://github.com/lhakimhli02/SATPLAN.git
-cd SATPLAN
+git clone https://github.com/lhakimhli02/classical-planning-suite.git
+cd classical-planning-suite
 
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -72,7 +72,7 @@ No command-line flags to remember — this is the recommended starting point if 
 ### Quick Start
 
 ```bash
-cd SATPLAN/Blackbox/blackbox_python
+cd Blackbox/blackbox_python
 
 # Blocksworld example
 python blackbox.py -o pddl_problems/blocksworld_domain.pddl -f pddl_problems/blocksworld_problem.pddl
@@ -171,7 +171,7 @@ By default, both animators show a two-panel display: the **planning graph** grow
 ### Blocksworld Animation
 
 ```bash
-cd SATPLAN/Blackbox/blackbox_python
+cd Blackbox/blackbox_python
 
 python animate_blocksworld.py -o pddl_problems/blocksworld_domain.pddl \
                               -f pddl_problems/blocksworld_problem.pddl
@@ -182,7 +182,7 @@ The right panel shows a robotic-arm blocks world with smooth three-phase movemen
 ### Elevator Animation
 
 ```bash
-cd SATPLAN/Blackbox/blackbox_python
+cd Blackbox/blackbox_python
 
 # Simple: 4 floors, 2 passengers, 1 elevator
 python animate_elevator.py -o pddl_problems/elevator_domain.pddl \
@@ -218,7 +218,7 @@ The right panel shows a building with elevator shaft(s), a smoothly moving car, 
 ### Quick Start
 
 ```bash
-cd SATPLAN/satplan_python
+cd satplan_python
 
 # Run on the included example (Depot domain)
 python satplan.py -o pddl_problems/domain.pddl -f pddl_problems/problem.pddl
@@ -291,7 +291,7 @@ A plain forward state-space search planner: states are sets of true fluents, act
 ### Quick Start
 
 ```bash
-cd SATPLAN
+# from the repo root
 python strips_python/strips.py -o benchmarks/blocks_domain.pddl -f benchmarks/blocks_s1.pddl
 ```
 

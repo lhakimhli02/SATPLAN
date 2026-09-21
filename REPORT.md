@@ -1,7 +1,7 @@
 # SATPLAN Project — Progress Report
 
 **Date:** April 23, 2026  
-**Repository:** `lhakimhli02/SATPLAN`
+**Repository:** `lhakimhli02/classical-planning-suite` (formerly `SATPLAN`)
 
 ---
 
