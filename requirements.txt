@@ -1,0 +1,6 @@
+# Core dependencies for BlackBox, SATplan, STRIPS, and the Streamlit UI.
+# Kissat and WalkSAT are optional external solvers — see README.md.
+python-sat
+matplotlib
+Pillow
+streamlit

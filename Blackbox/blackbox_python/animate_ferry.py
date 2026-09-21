@@ -319,12 +319,14 @@ def _states_from_actions(initial: FerryState, actions: list[str]) -> list[tuple]
 
 # ── Full search + animation builder ───────────────────────────────────────────
 
-def run_full_search(domain_file: str, problem_file: str, max_steps: int, debug: int):
+def run_full_search(domain_file: str, problem_file: str, max_steps: int, debug: int,
+                    show_graph: bool = True):
     graph = PlanningGraph()
     graph.debug_flag = debug
     graph.load(domain_file, problem_file)
     graph.process_data()
-    graph.create_graph(max_steps, auto_stop=False)
+    if show_graph:
+        graph.create_graph(max_steps, auto_stop=False)
     initial   = _parse_initial_state(graph)
     cars, locs = _parse_objects(graph)
     all_goals = list(graph.the_goals)
@@ -335,22 +337,26 @@ def run_full_search(domain_file: str, problem_file: str, max_steps: int, debug: 
     plan_states  = _states_from_actions(initial, plan_actions)
     plan_horizon = len(plan_actions)
 
-    # Show a few evenly-spaced search horizons before execution
-    n_search   = min(3, plan_horizon - 1)
-    step_size  = max(1, plan_horizon // (n_search + 1))
-    search_hs  = list(range(step_size, plan_horizon, step_size))[:n_search]
-    horizon_data: list = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
-    horizon_data.append((plan_horizon, plan_states, all_goals, True))
+    if show_graph:
+        # Show a few evenly-spaced search horizons before execution
+        n_search   = min(3, plan_horizon - 1)
+        step_size  = max(1, plan_horizon // (n_search + 1))
+        search_hs  = list(range(step_size, plan_horizon, step_size))[:n_search]
+        horizon_data: list = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
+        horizon_data.append((plan_horizon, plan_states, all_goals, True))
+    else:
+        horizon_data = [(plan_horizon, plan_states, all_goals, True)]
 
     return graph, plan_horizon, horizon_data, initial, cars, locs, all_goals
 
 
 def build_animation(domain_file: str, problem_file: str, max_steps: int, debug: int,
-                    show_noop: bool, max_facts: int, max_actions: int, interval: int):
+                    show_noop: bool, max_facts: int, max_actions: int, interval: int,
+                    show_graph: bool = True):
     print(f'Loading {domain_file} + {problem_file}')
     (graph, plan_horizon, horizon_data,
      initial, cars, locs, all_goals) = run_full_search(
-        domain_file, problem_file, max_steps, debug)
+        domain_file, problem_file, max_steps, debug, show_graph=show_graph)
 
     goal_cars   = {g[1].lower() for g in all_goals if g[0].lower() == 'at' and len(g) == 3}
     goal_names  = {CONNECTOR.join(g) for g in all_goals}
@@ -416,12 +422,18 @@ def build_animation(domain_file: str, problem_file: str, max_steps: int, debug: 
     print(f'Animation: {len(frames)} frames at {frame_ms} ms each '
           f'({len(frames) * frame_ms / 1000:.1f}s total, loops)')
 
-    fig = plt.figure(figsize=(16, 6))
-    fig.patch.set_facecolor(C_BG)
-    gs = GridSpec(1, 2, figure=fig, left=0.01, right=0.99, top=0.91, bottom=0.06,
-                  wspace=0.04, width_ratios=[2, 1])
-    ax_graph = fig.add_subplot(gs[0])
-    ax_ferry = fig.add_subplot(gs[1])
+    if show_graph:
+        fig = plt.figure(figsize=(16, 6))
+        fig.patch.set_facecolor(C_BG)
+        gs = GridSpec(1, 2, figure=fig, left=0.01, right=0.99, top=0.91, bottom=0.06,
+                      wspace=0.04, width_ratios=[2, 1])
+        ax_graph = fig.add_subplot(gs[0])
+        ax_ferry = fig.add_subplot(gs[1])
+    else:
+        fig = plt.figure(figsize=(9, 6))
+        fig.patch.set_facecolor(C_BG)
+        ax_graph = None
+        ax_ferry = fig.add_subplot(111)
 
     def _suptitle(fr: dict) -> str:
         h = fr['horizon']
@@ -437,7 +449,7 @@ def build_animation(domain_file: str, problem_file: str, max_steps: int, debug: 
         t  = fr['graph_layer']
         rg = fr.get('reachable_goals', goal_names)
         # Only re-render planning graph when the layer actually changes
-        if t != _last_rendered_layer[0] and t < len(graph.op_table):
+        if show_graph and t != _last_rendered_layer[0] and t < len(graph.op_table):
             render_layer(ax_graph, graph, t, rg, show_noop=show_noop,
                          max_facts=max_facts, max_actions=max_actions)
             _last_rendered_layer[0] = t
@@ -467,6 +479,9 @@ def main():
     parser.add_argument('--max-facts',   type=int, default=45)
     parser.add_argument('--max-actions', type=int, default=60)
     parser.add_argument('--debug',       type=int, default=0)
+    parser.add_argument('--no-graph',    action='store_true',
+                        help='Hide the planning-graph panel; animate the '
+                             'world-state execution only')
     args = parser.parse_args()
 
     _fig, ani = build_animation(
@@ -475,6 +490,7 @@ def main():
         show_noop=not args.no_noop,
         max_facts=args.max_facts, max_actions=args.max_actions,
         interval=args.interval,
+        show_graph=not args.no_graph,
     )
     if args.save:
         print(f'Saving to {args.save} ...')

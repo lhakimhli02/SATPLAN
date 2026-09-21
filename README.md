@@ -1,16 +1,67 @@
 # SATPLAN (Python)
 
-Two SAT-based planning systems that convert PDDL problems into Boolean satisfiability problems.
+Three planning systems, plus a Streamlit web UI to try them all without touching the command line.
 
 - **`blackbox_python/`** — BlackBox: PDDL → GraphPlan → CNF → SAT. Python rewrite of the original BlackBox planner by Henry Kautz and Bart Selman.
 - **`satplan_python/`** — SATplan: PDDL → STRIPS → CNF → SAT. Goes directly from grounded STRIPS actions to CNF, bypassing the planning graph.
+- **`strips_python/`** — STRIPS: a plain forward state-space search planner (no SAT, no planning graph), in the style of AIMA's [aima-python](https://github.com/aimacode/aima-python) `planning.py`. Included as a naive baseline — see [its section](#strips-strips_python) for why it's expected to struggle on bigger problems where BlackBox/SATplan succeed instantly.
+- **`ui/`** — a Streamlit app that drives all three planners, lets you edit problem PDDL (or upload your own domain), and animates the solved plan.
+
+---
+
+## Setup (start here)
+
+You need **Python 3.10+**. Everything else installs with one command from the repo root:
+
+```bash
+git clone https://github.com/lhakimhli02/Blackbox.git SATPLAN
+cd SATPLAN
+
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+That installs `python-sat` (CaDiCaL/Glucose/MapleChrono/MiniSat solvers, no separate build step), `matplotlib` + `Pillow` (animations), and `streamlit` (the web UI). Kissat and WalkSAT are optional, external, and not required for anything below — see [Building External Solvers](#building-external-solvers) if you want them later.
+
+**Sanity check** — this should print a 4-step plan in well under a second:
+
+```bash
+python satplan_python/satplan.py -o benchmarks/blocks_domain.pddl -f benchmarks/blocks_s1.pddl
+```
+
+If that works, everything below will too.
+
+---
+
+## Web UI (`ui/`)
+
+The fastest way to explore all three planners. From the repo root, with the virtualenv active:
+
+```bash
+streamlit run ui/app.py
+```
+
+This opens a browser tab (usually `http://localhost:8501`). From there you can:
+
+- Pick a **Domain** — Blocksworld, Elevator, Ferry, Hanoi, or **Custom** (paste or upload your own domain + problem PDDL).
+- Pick a **Planner** — SATplan, BlackBox, or STRIPS — and, for the SAT-based ones, a **SAT Solver**.
+- Adjust sliders (e.g. number of blocks) to regenerate a problem, then open **"Problem PDDL (editable)"** to hand-edit it — e.g. split blocks into multiple separate stacks instead of one tower — before running. `benchmarks/blocks_3towers.pddl` is a ready-made example of this (three 2-block towers that rotate tops across each other); paste its contents in to see it work.
+- Click **Run Solver** to see the plan and timing.
+- Click **Generate Animation** to watch the plan execute (Blocksworld/Ferry/Hanoi/Elevator only — not available for Custom domains, since there's no renderer for an arbitrary domain).
+
+No command-line flags to remember — this is the recommended starting point if you're new to the repo.
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- PySAT: `pip install python-sat`
+- Everything below comes from `pip install -r requirements.txt`:
+  - PySAT (`python-sat`) — bundles CaDiCaL, Glucose, MapleChrono, MiniSat
+  - `matplotlib` + `Pillow` — animations
+  - `streamlit` — the web UI
 - Kissat (optional): `pip install passagemath-kissat`
 - WalkSAT (optional): see [Building External Solvers](#building-external-solvers)
 
@@ -115,7 +166,7 @@ blackbox_python/
 
 ## Animations (`blackbox_python/`)
 
-Both animators show a two-panel display: the **planning graph** growing horizon by horizon on the left, and the **world state** executing the found plan on the right. Requires `matplotlib`: `pip install matplotlib`.
+By default, both animators show a two-panel display: the **planning graph** growing horizon by horizon on the left, and the **world state** executing the found plan on the right. Pass `--no-graph` to drop the left panel and show only the world-state execution (this is what the [web UI](#web-ui-ui) does). Requires `matplotlib` + `Pillow` (both in `requirements.txt`).
 
 ### Blocksworld Animation
 
@@ -154,6 +205,7 @@ The right panel shows a building with elevator shaft(s), a smoothly moving car, 
 | `--interval N` | Milliseconds per logical plan step (default: 1200) |
 | `--save <path>` | Save as `.mp4` or `.gif` instead of displaying |
 | `--no-noop` | Hide no-op actions in the planning graph panel |
+| `--no-graph` | Hide the planning-graph panel entirely; animate world-state execution only |
 | `--max-facts N` | Max fact nodes per graph column (default: 45) |
 | `--max-actions N` | Max action nodes per graph column (default: 60) |
 | `--debug N` | Debug level (default: 0) |
@@ -232,6 +284,46 @@ satplan_python/
 
 ---
 
+## STRIPS (`strips_python/`)
+
+A plain forward state-space search planner: states are sets of true fluents, actions are grounded STRIPS operators, and the search walks from the initial state toward the goal — no SAT encoding, no planning graph. This is the classical approach described in Russell & Norvig and implemented in AIMA's [`planning.py`](https://github.com/aimacode/aima-python), included here as a baseline to compare against BlackBox and SATplan.
+
+### Quick Start
+
+```bash
+cd SATPLAN
+python strips_python/strips.py -o benchmarks/blocks_domain.pddl -f benchmarks/blocks_s1.pddl
+```
+
+### Usage
+
+```
+python strips.py -o <domain.pddl> -f <problem.pddl> [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-o <file>` | Domain PDDL file |
+| `-f <file>` | Problem PDDL file |
+| `-g <file>` | Write plan to output file |
+| `-i <level>` | Debug info level (0-2) |
+| `-uninformed` | Plain breadth-first search instead of greedy best-first (guarantees a shortest plan; slower) |
+| `-maxdepth <n>` | Max plan length to search for (default: 60) |
+| `-maxnodes <n>` | Max states to expand before giving up (default: 300000) |
+| `-norelevance` | Disable action relevance pruning during grounding |
+
+Two search modes: the default is **greedy best-first search** using the number of unsatisfied goal literals as a heuristic; `-uninformed` switches to plain **breadth-first search**, which is guaranteed to find a shortest plan but explores far more states.
+
+### Why STRIPS can fail where BlackBox/SATplan succeed
+
+This is expected, not a bug. STRIPS has no notion of *which* action to prefer beyond the goal-count heuristic, so on problems with many objects and a large branching factor (e.g. Blocksworld with 8+ blocks, where every block can in principle be stacked on every other block) it can burn through its node budget without finding a plan, even when a short one exists — the same "interacting subgoals" weakness that historically motivated GraphPlan (BlackBox) and SAT-based planning (SATplan) in the first place. If it fails:
+
+- Try a smaller problem (fewer blocks/cars/passengers).
+- Raise the budget: `-maxnodes 2000000` (slower, more thorough).
+- Compare against BlackBox or SATplan on the same PDDL — they use a planning graph / SAT encoding respectively, which reason about the whole problem structure at once instead of guessing one action at a time, so they don't hit this wall.
+
+---
+
 ## Available Solvers (both versions)
 
 | Solver | Backend | Incremental | Description |
@@ -281,7 +373,9 @@ After finding a plan at the minimum makespan, both planners search for plans wit
 
 ---
 
-## How the Two Planners Differ
+## How the Three Planners Differ
+
+BlackBox and SATplan are both SAT-based (they compile the problem to CNF and hand it to a SAT solver); STRIPS is categorically different — plain forward search, no SAT solver involved at all. Comparing the two SAT-based ones directly:
 
 | | BlackBox | SATplan |
 |--|---------|---------|
@@ -291,6 +385,8 @@ After finding a plan at the minimum makespan, both planners search for plans wit
 | **Frame axioms** | Fact-level (graph layer) | Explanatory frame axioms per fluent per step |
 | **Effect clauses** | Optional (`-axioms 31+`) | Always emitted (or disabled with `-noeffects`) |
 | **Unique options** | `-axioms`, `-noskip`, `-M`, `graphplan` solver | `-nocwa`, `-noeffects`, `-nomutex`, `-forallstep`, `-sequential` |
+
+STRIPS trades all of that machinery for simplicity: no CNF, no mutexes, no solver to pick — just state-space search. See [its section](#strips-strips_python) for what that costs on larger problems.
 
 ---
 

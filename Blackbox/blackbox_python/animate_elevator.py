@@ -436,7 +436,7 @@ def _states_from_steps(initial: ElevatorState,
 
 
 def run_full_search(domain_file: str, problem_file: str,
-                    max_steps: int, debug: int):
+                    max_steps: int, debug: int, show_graph: bool = True):
     graph = PlanningGraph()
     graph.debug_flag = debug
     graph.load(domain_file, problem_file)
@@ -445,7 +445,8 @@ def run_full_search(domain_file: str, problem_file: str,
     lifts, passengers = _parse_objects(graph)
     floor_order       = _parse_floor_order(graph)
     initial           = _parse_initial_state(graph)
-    graph.create_graph(max_steps, auto_stop=False)
+    if show_graph:
+        graph.create_graph(max_steps, auto_stop=False)
     all_goals = list(graph.the_goals)
 
     plan_steps = _get_plan_steps(domain_file, problem_file)
@@ -456,11 +457,14 @@ def run_full_search(domain_file: str, problem_file: str,
     plan_states  = _states_from_steps(initial, plan_steps)
     plan_horizon = len(plan_steps)
 
-    n_search  = min(3, plan_horizon - 1)
-    step_size = max(1, plan_horizon // (n_search + 1))
-    search_hs = list(range(step_size, plan_horizon, step_size))[:n_search]
-    horizon_data = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
-    horizon_data.append((plan_horizon, plan_states, all_goals, True))
+    if show_graph:
+        n_search  = min(3, plan_horizon - 1)
+        step_size = max(1, plan_horizon // (n_search + 1))
+        search_hs = list(range(step_size, plan_horizon, step_size))[:n_search]
+        horizon_data = [(h, [(initial.copy(), [])], [], False) for h in search_hs]
+        horizon_data.append((plan_horizon, plan_states, all_goals, True))
+    else:
+        horizon_data = [(plan_horizon, plan_states, all_goals, True)]
 
     return (graph, plan_horizon, horizon_data,
             initial, lifts, passengers, floor_order, all_goals)
@@ -471,11 +475,11 @@ def run_full_search(domain_file: str, problem_file: str,
 def build_animation(domain_file: str, problem_file: str,
                     max_steps: int, debug: int,
                     show_noop: bool, max_facts: int, max_actions: int,
-                    interval: int):
+                    interval: int, show_graph: bool = True):
     print(f'Loading {domain_file} + {problem_file}')
     (graph, plan_horizon, horizon_data,
      initial, lifts, passengers, floor_order, all_goals) = run_full_search(
-        domain_file, problem_file, max_steps, debug)
+        domain_file, problem_file, max_steps, debug, show_graph=show_graph)
 
     n_floors        = len(floor_order)
     floor_idx_map   = {f: i for i, f in enumerate(floor_order)}
@@ -578,13 +582,19 @@ def build_animation(domain_file: str, problem_file: str,
           f'({len(frames) * frame_ms / 1000:.1f}s total, loops)')
 
     # ── Figure setup ──────────────────────────────────────────────────────
-    fig = plt.figure(figsize=(16, 6))
-    fig.patch.set_facecolor(C_BG)
-    gs = GridSpec(1, 2, figure=fig,
-                  left=0.01, right=0.99, top=0.91, bottom=0.06,
-                  wspace=0.04, width_ratios=[2, 1])
-    ax_graph = fig.add_subplot(gs[0])
-    ax_elev  = fig.add_subplot(gs[1])
+    if show_graph:
+        fig = plt.figure(figsize=(16, 6))
+        fig.patch.set_facecolor(C_BG)
+        gs = GridSpec(1, 2, figure=fig,
+                      left=0.01, right=0.99, top=0.91, bottom=0.06,
+                      wspace=0.04, width_ratios=[2, 1])
+        ax_graph = fig.add_subplot(gs[0])
+        ax_elev  = fig.add_subplot(gs[1])
+    else:
+        fig = plt.figure(figsize=(9, 6))
+        fig.patch.set_facecolor(C_BG)
+        ax_graph = None
+        ax_elev  = fig.add_subplot(111)
 
     def _suptitle(fr: dict) -> str:
         h = fr['horizon']
@@ -599,7 +609,7 @@ def build_animation(domain_file: str, problem_file: str,
         fr = frames[frame_idx]
         t  = fr['graph_layer']
         reachable_g = fr.get('reachable_goals', goal_names_raw)
-        if t < len(graph.op_table) and t != _last_layer[0]:
+        if show_graph and t < len(graph.op_table) and t != _last_layer[0]:
             render_layer(ax_graph, graph, t, reachable_g,
                          show_noop=show_noop,
                          max_facts=max_facts, max_actions=max_actions)
@@ -652,6 +662,9 @@ def main():
     parser.add_argument('--max-facts',   type=int, default=45)
     parser.add_argument('--max-actions', type=int, default=60)
     parser.add_argument('--debug',       type=int, default=0)
+    parser.add_argument('--no-graph',    action='store_true',
+                        help='Hide the planning-graph panel; animate the '
+                             'world-state execution only')
     args = parser.parse_args()
 
     _fig, ani = build_animation(
@@ -663,6 +676,7 @@ def main():
         max_facts    = args.max_facts,
         max_actions  = args.max_actions,
         interval     = args.interval,
+        show_graph   = not args.no_graph,
     )
 
     if args.save:
