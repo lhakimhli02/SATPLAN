@@ -525,9 +525,9 @@ This module is useful as a simpler, more readable reference for understanding ho
 
 ---
 
-## 8. IPC Benchmark Domains (`IPC3/`)
+## 8. IPC Benchmark Domains
 
-This directory contains planning domains from the **International Planning Competition 3** — a major benchmark suite used to evaluate AI planners. Each domain comes in several variants (STRIPS-only, Numeric, Timed, etc.). The STRIPS variants work directly with both planners.
+During development, domains from the **International Planning Competition 3** — a major benchmark suite used to evaluate AI planners — were used for testing. Each domain comes in several variants (STRIPS-only, Numeric, Timed, etc.); the STRIPS variants work directly with both planners. The raw IPC3 corpus (2000+ files, ~120MB) isn't bundled in this repo to keep it lightweight; it's searchable on [planning.domains](https://planning.domains) if you want the full suite. `benchmarks/` has a small curated set (including a hand-picked Depot problem) actually used by the test scripts here.
 
 | Domain | What it models |
 |--------|---------------|
