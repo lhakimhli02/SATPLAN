@@ -196,6 +196,9 @@ def main() -> None:
 
 
 def _run_builtin_domain(domain: str, planner_name: str, solver_name: str | None) -> None:
+    # BlackBox is the GraphPlan-based planner, so its animation shows the
+    # planning-graph panel; SATplan/STRIPS have no graph to show.
+    show_graph = planner_name == "BlackBox"
     params    = _domain_params(domain)
     param_key = _param_key(domain, params)
 
@@ -281,7 +284,7 @@ def _run_builtin_domain(domain: str, planner_name: str, solver_name: str | None)
         anim_timeout = st.number_input("Anim timeout (s)", min_value=30,
                                        max_value=600, value=240, step=30)
 
-    anim_key   = f"{content_key}_spd{anim_interval}"
+    anim_key   = f"{content_key}_spd{anim_interval}_{'graph' if show_graph else 'nograph'}"
     gif_out    = _gif_path(anim_key)
     gif_exists = (
         st.session_state.last_anim_key == anim_key
@@ -307,9 +310,10 @@ def _run_builtin_domain(domain: str, planner_name: str, solver_name: str | None)
             "--save", gif_out,
             "--steps", str(steps),
             "--no-noop",
-            "--no-graph",
             "--interval", str(anim_interval),
         ]
+        if not show_graph:
+            cmd.append("--no-graph")
         try:
             with st.spinner(
                 f"Rendering animation (up to {steps} horizons) — "
